@@ -3,24 +3,24 @@ from preprocess import *
 from torch.utils.data import Dataset, sampler
 from skimage import io
 import random
-from utils.data_utils import create_csv_files_for_datasets
-from parameters import dataset_path, train_dataset_path, test_dataset_path, test_split, network_type, root_directory_path, num_bronchus_generations, batch_size, validation_split
+from parameters import dataset_path, test_split, root_directory_path, \
+    num_bronchus_generations, batch_size, validation_split, dataset_type
 from torchvision import transforms
+from pathlib import PurePath
 
 
 class BronchusDataset(Dataset):
     """ The dataset class """
-    def __init__(self, csv_file, root_directory, network_type, num_bronchus_generations=None, transform=None):
+    def __init__(self, csv_file, root_directory, num_bronchus_generations, transform=None):
         # CSV file containing 2 columns: frame_path and label
         self.labeled_frames = pd.read_csv(csv_file, index_col=False)
         self.root_directory = root_directory
-        self.network_type = network_type
         self.num_generations = num_bronchus_generations
         self.transform = transform
 
-        if self.network_type == 'segment_det_net':
-            self.label_mapping = self.get_label_mapping()  # Mapping from original labels to new labels
-            self.keys = list(self.label_mapping.keys())
+        # Mapping from original number of labels to X labels given self.num_generations
+        self.label_mapping = self.get_label_mapping()
+        self.keys = list(self.label_mapping.keys())
 
     def __len__(self):
         return len(self.labeled_frames)
@@ -32,46 +32,25 @@ class BronchusDataset(Dataset):
         if torch.is_tensor(index):
             index = index.tolist()
 
-        if self.network_type == 'segment_det_net':
-            # Fetch columns from the csv for the given index
-            frame_name = self.labeled_frames.iloc[index, 0]
+       # Fetch columns from the csv for the given index
+        frame_name = self.labeled_frames.iloc[index, 0]
 
-            # Frame
-            frame = io.imread(frame_name)
-            if self.transform:
-                frame = self.transform(frame)
+        # Frame
+        frame = io.imread(frame_name)
 
-            # Get original label
-            original_label = self.labeled_frames.iloc[index, 1]
-            num_classes = len(list(self.label_mapping.keys()))+1
-            label = torch.nn.functional.one_hot(torch.tensor(original_label), num_classes=num_classes)
-            return frame, label.float()
+        if self.transform:
+            frame = self.transform(frame)
 
-        else:
-            # Direction detection network
-            # Fetch columns from the csv for the given index
-            frame_name_1 = self.labeled_frames.iloc[index, 0]
-            frame_name_2 = self.labeled_frames.iloc[index, 1]
-            frame_name_3 = self.labeled_frames.iloc[index, 2]
-            frame_name_4 = self.labeled_frames.iloc[index, 3]
-            frame_name_5 = self.labeled_frames.iloc[index, 4]
+        # Get original airway label
+        original_airway_label = self.labeled_frames.iloc[index, 1]
+        num_classes = len(list(self.label_mapping.keys()))+1
+        airway_label = torch.nn.functional.one_hot(torch.tensor(original_airway_label), num_classes=num_classes)
 
-            # Frame
-            frame_1 = io.imread(frame_name_1)
-            frame_2 = io.imread(frame_name_2)
-            frame_3 = io.imread(frame_name_3)
-            frame_4 = io.imread(frame_name_4)
-            frame_5 = io.imread(frame_name_5)
+        # Get direction label
+        direction_label = self.labeled_frames.iloc[index, 2]
+        direction_label = torch.nn.functional.one_hot(torch.tensor(direction_label), num_classes=2)
 
-            frames = np.array([frame_1, frame_2, frame_3, frame_4, frame_5])
-
-            if self.transform:
-                frames = torch.tensor(frames)
-
-            # Get label
-            label = self.labeled_frames.iloc[index, 5]
-            label = torch.nn.functional.one_hot(torch.tensor(label), num_classes=2)
-            return frames, label.float()
+        return frame, airway_label.float(), direction_label.float()
 
     def perform_mapping(self, label):
         # Label is >= num_generations
@@ -88,50 +67,10 @@ class BronchusDataset(Dataset):
         Method also deleted frames that has a larger generation than the one entered
         """
         # Change label by using the given mapping system
-        self.labeled_frames["Label"] = self.labeled_frames["Label"].apply(lambda label: self.perform_mapping(label))
+        self.labeled_frames["Airway_Segment"] = self.labeled_frames["Airway_Segment"].apply(lambda label: self.perform_mapping(label))
 
         # Remove frames not belonging to the generation chosen (labeled with 0)
         self.labeled_frames = self.labeled_frames[(self.labeled_frames.Label != 0)]
-
-    def get_train_dataloaders(self, batch_size, validation_split):
-        """ Splits the data into train, test and validation data """
-        # Re-label the dataset based on num generations entered
-        if self.network_type == 'segment_det_net':
-            self.relabel_dataset()
-
-        indices = list(range(len(self)))
-        # Shuffle the dataset
-        random.shuffle(indices)
-
-        # Validation
-        validation_split_index = int(np.floor(validation_split * len(self)))
-        validation_indices = indices[:validation_split_index]
-        validation_sampler = sampler.SubsetRandomSampler(validation_indices)
-        validation_loader = torch.utils.data.DataLoader(self, batch_size=batch_size, sampler=validation_sampler, drop_last=True)
-
-        # Train
-        train_indices = indices[validation_split_index:]
-        train_sampler = sampler.SubsetRandomSampler(train_indices)
-        train_loader = torch.utils.data.DataLoader(self, batch_size=batch_size, sampler=train_sampler, drop_last=True)
-
-        return train_loader, validation_loader
-
-    def get_test_dataloaders(self, batch_size):
-        """ Returns a dataloader for the test data """
-        # Re-label the dataset based on num generations entered
-        if self.network_type == 'segment_det_net':
-            self.relabel_dataset()
-
-        indices = list(range(len(self)))
-
-        # Shuffle the dataset
-        random.shuffle(indices)
-
-        # Create Test Data Loader
-        test_sampler = sampler.SubsetRandomSampler(indices)
-        test_loader = torch.utils.data.DataLoader(self, batch_size=batch_size, sampler=test_sampler, drop_last=True)
-
-        return test_loader
 
     def get_label_mapping(self):
         """
@@ -214,35 +153,54 @@ class BronchusDataset(Dataset):
         return label_mapping
 
     def get_num_classes(self):
-        return len(list(self.label_mapping.keys()))+1  # Num defined classes + one class for all undefined classes
+        return len(list(self.label_mapping.keys()))+1  # Num defined classes + one class:0 for all undefined classes
+
+
+def move_location(videos, new_location):
+    for video in videos:
+        temp_dataframe = pd.read_csv(raw_dataset_path + "/" + video)
+        new_path = PurePath(new_location, video)
+        temp_dataframe.to_csv(new_path, index=False)
+
+
+def split_data(validation_split, test_split, raw_dataset_path, dataset_path):
+    """
+    Splits the given raw_data into datasets/train, datasets/test or datasets/validation.
+    A video is represented as a csv file with all its frames and belonging labels
+     """
+    # Create a list of all videos given
+    raw_data = os.listdir(raw_dataset_path)
+    videos = list(filter(lambda x: not x.startswith("."), raw_data))
+
+    # Get num videos for train, test and validation
+    num_videos = len(videos)
+    num_validation_videos = int(validation_split * num_videos)
+    num_test_videos = int(test_split * num_videos)
+
+    # Get random videos for the validation set
+    validation_videos = [str(np.random.choice(videos, replace=False)) for i in range(num_validation_videos)]
+
+    # Get all videos NOT in the validation set
+    temp_videos = [index for index in videos if index not in validation_videos]
+
+    # Get random videos for the test set
+    test_videos = [str(np.random.choice(temp_videos, replace=False)) for i in
+                                range(num_test_videos)]
+
+    # Get the remaining videos for training (NOT in test -> NOT in validation)
+    train_videos = [index for index in temp_videos if index not in test_videos]
+
+    print("Validation")
+    move_location(validation_videos, dataset_path + "validation/")
+    print("Test")
+    move_location(test_videos, dataset_path + "test/")
+    print("Train")
+    move_location(train_videos, dataset_path + "train/")
 
 
 def create_datasets_and_dataloaders():
-    create_csv_files_for_datasets(dataset_path, train_dataset_path, test_dataset_path, test_split, network_type)
+    # Split data in Train, test and validation
+    split_data(validation_split, test_split, raw_dataset_path, dataset_path)
 
-    # Create train dataset
-    train_dataset = BronchusDataset(
-        csv_file=train_dataset_path,
-        root_directory=root_directory_path,
-        network_type=network_type,
-        num_bronchus_generations=num_bronchus_generations,
-        transform=transforms.Compose([
-            transforms.ToTensor(),
-        ]),
-    )
-    # Create test dataset
-    test_dataset = BronchusDataset(
-        csv_file=test_dataset_path,
-        root_directory=root_directory_path,
-        network_type=network_type,
-        num_bronchus_generations=num_bronchus_generations,
-        transform=transforms.Compose([
-            transforms.ToTensor(),
-        ]),
-    )
 
-    # Load train and test dataset
-    train_dataloader = train_dataset.get_train_dataloaders(batch_size, validation_split)
-    test_dataloader = test_dataset.get_test_dataloaders(batch_size)
-
-    return train_dataset, test_dataset, train_dataloader, test_dataloader
+create_datasets_and_dataloaders()

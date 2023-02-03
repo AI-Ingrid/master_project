@@ -1,12 +1,12 @@
-import torchvision
-from torch import nn
 import torch
-from parameters import batch_size, hidden_nodes, network_type, num_classes
+from torch import nn
+from parameters import num_classes, hidden_nodes
+from pytorch_pretrained_vit import ViT
 
 
-class TimeDistributed(nn.Module):
+class TimeDistributer(nn.Module):
     def __init__(self, module):
-        super(TimeDistributed, self).__init__()
+        super(TimeDistributer, self).__init__()
         self.module = module
 
     def forward(self, X):
@@ -30,52 +30,31 @@ class TimeDistributed(nn.Module):
         return output_reshaped
 
 
-class DirectionDetNet(nn.Module):
+class NavigationNet(nn.Module):
     def __init__(self):
         super().__init__()
         self.hidden_nodes = hidden_nodes
 
-        # Feature extractor
-        self.feature_extractor = torchvision.models.resnet18(pretrained=True)
+        # INPUT: Sequence of 10 frames
+        # Encoder: ViT + TimeDistributer
+        self.vision_transformer = ViT('B_16_imagenet1k', pretrained=True)  # OUT: 1000
+        self.time_distributer = TimeDistributer(self.vision_transformer)   # OUT: ?
 
-        # Reshaping 5D to 4D
-        self.time_distributed = TimeDistributed(self.feature_extractor)
+        # Decoder: RNN + classifier
+        # RNN: LSTM
+        self.RNN = nn.LSTM(1000, self.hidden_nodes, 1, batch_first=True)  # OUT: ?
 
-        # Recurrent Neural Network
-        self.RNN = nn.LSTM(1000, self.hidden_nodes, 1, batch_first=True)
-        self.classifier = nn.Sequential(
+        # Classifier Direction
+        self.direction_classifier = nn.Sequential(
             nn.Dropout(0.5),
             nn.Linear(640, 64),
             nn.ReLU(),
+
             nn.Linear(64, 2),
         )
 
-        # Handle training for certain layers
-        for param in self.feature_extractor.parameters():
-            param.requires_grad = False
-        for param in self.feature_extractor.layer3.parameters():
-            param.requires_grad = True
-        for param in self.feature_extractor.layer4.parameters():
-            param.requires_grad = True
-        for param in self.feature_extractor.fc.parameters():
-            param.requires_grad = True
-
-    def forward(self, X):
-        X = self.time_distributed(X)
-        X = self.RNN(X)[0]
-        # Reshape from 3D to 2D
-        original_shape = tuple(X.shape)
-        X_reshaped = X.reshape((batch_size, 5*self.hidden_nodes))
-        X = self.classifier(X_reshaped)
-        return X
-
-
-class SegmentDetNet(nn.Module):
-    def __init__(self, num_classes):
-        super().__init__()
-        self.model = torchvision.models.resnet18(pretrained=True, progress=True)
-        self.model.fc = nn.Linear(512, 256)
-        self.classifier = nn.Sequential(
+        # Classifier Airway
+        self.airway_classifier = nn.Sequential(
             nn.Linear(256, 128),
             nn.BatchNorm1d(128),
             nn.Dropout(0.5),
@@ -85,33 +64,23 @@ class SegmentDetNet(nn.Module):
             nn.ReLU(),
             nn.Linear(64, num_classes),
         )
-        # Only train the last layers of the network
-        for param in self.model.parameters():
-            param.requires_grad = False
-        for param in self.model.layer3.parameters():
-            param.requires_grad = True
-        for param in self.model.layer4.parameters():
-            param.requires_grad = True
-        for param in self.model.fc.parameters():
-            param.requires_grad = True
-        for param in self.classifier.parameters():
-            param.requires_grad = True
+        # OUTPUT: Direction at the end of the sequence, Segment at the end of the sequence
 
-    def forward(self, x):
-        x = self.model(x)
-        x = self.classifier(x)
-        return x
+    def forward(self, X):
+        # INPUT: Sequence of 10 frames
+        # Timedistributer + ViT
+        X = self.time_distributer(X)
+
+        # RNN
+        X = self.RNN(X)
+
+        # Classifiers (Direction and Airway)
+        airway = self.airway_classifier(X)
+        direction = self.direction_classifier(X)
+
+        return airway, direction
 
 
 def create_neural_net():
-    if network_type == "segment_det_net":
-        neural_net = SegmentDetNet(num_classes)
-
-    elif network_type == "direction_det_net":
-        neural_net = DirectionDetNet()
-
-    else:
-        print("Neural network type not set")
-        neural_net = None
-
+    neural_net = NavigationNet()
     return neural_net

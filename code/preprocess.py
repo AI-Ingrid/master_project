@@ -2,7 +2,6 @@ import os
 import math
 import imageio
 import cv2
-import re
 
 import pandas as pd
 import numpy as np
@@ -12,9 +11,8 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm   # create progress bars, see sample usage below
 from scipy.spatial.distance import cdist
 
-from parameters import videos_path, dataset_type, network_type, frames_path, fps, label_file_path, frame_dimension, dataset_path
-from utils.data_utils import get_trim_start_end_frames, VideoTrimmingLimits, find_next_folder_nbr
-
+from parameters import videos_path, convert_videos, frames_path, fps, label_file_path, frame_dimension, raw_dataset_path
+from utils.data_utils import get_trim_start_end_frames, VideoTrimmingLimits, find_next_folder_nbr, natural_keys
 matplotlib.use('Agg')   # Use 'Agg' backend to avoid memory overload
 
 
@@ -24,6 +22,7 @@ def convert_video_to_frames(input_data_path, output_data_path):
     """
     output_path = pathlib.Path(output_data_path)
     output_path.mkdir(exist_ok=True)
+
     # Create frames from video if no frames exist
     if len(os.listdir(output_data_path)) <= 1:  # != 0
         print("Converting frames..")
@@ -155,7 +154,7 @@ def get_positions_from_video(path_to_position_file):
     return positions
 
 
-def get_possible_positions_and_its_labels():
+def get_possible_positions_and_its_airways():
     # Create a function for reading branches_position_numbers.txt file
     positions_labels_file = open(label_file_path)
     lines = positions_labels_file.readlines()
@@ -188,7 +187,7 @@ def get_possible_positions_and_its_labels():
     return positions_and_labels
 
 
-def match_frames_with_positions_and_timestamps(positions, path_to_timestamp_file, frames, positions_and_labels, dataframe):
+def match_frames_with_positions_and_timestamps(positions, path_to_timestamp_file, frames, positions_and_labels, dataframe, is_forward):
     # Get frame sampling ratio in ms
     frame_sampling_ratio = 1/fps * 1000
 
@@ -225,12 +224,13 @@ def match_frames_with_positions_and_timestamps(positions, path_to_timestamp_file
 
         # Find label
         best_match_position_tuple = (best_match_position[0], best_match_position[1], best_match_position[2])
-        label = positions_and_labels[best_match_position_tuple]
+        airway_segment = positions_and_labels[best_match_position_tuple]
 
         # Add the frame and label to dataframe
         labeled_frame = pd.DataFrame({
             'Frame': [frame],
-            'Label': label,
+            'Airway_Segment': airway_segment,
+            'Direction': is_forward,
         }).reset_index(drop=True)
 
         # Store labeled frame in dataframe
@@ -242,189 +242,118 @@ def match_frames_with_positions_and_timestamps(positions, path_to_timestamp_file
     return new_dataframe
 
 
-# The function: atoi and natural_keys are taken from Stackoverflow in order to sort a
-# string that contains integers the correct way
-def atoi(text):
-    """
-    Code from Stackoverflow: https://stackoverflow.com/questions/5967500/how-to-correctly-sort-a-string-with-a-number-inside
-    """
-    return int(text) if text.isdigit() else text
-
-
-def natural_keys(text):
-    '''
-    Code from Stackoverflow: https://stackoverflow.com/questions/5967500/how-to-correctly-sort-a-string-with-a-number-inside
-    '''
-    return [atoi(c) for c in re.split(r'(\d+)', text)]
-
-
-def add_labels(network_type, path_to_timestamp_file, path_to_position_file, frames, dataframe, video_count):
+def add_labels(path_to_timestamp_file, path_to_position_file, frames, dataframe, video_count):
     """A help function for crop_scale_and_label_frames that labels the frames in a specific
     sequence given from the path_to_frames parameter
     """
     # Sort the list of frames from the video
     frames.sort(key=natural_keys)
 
-    # Direction Detection Net
-    if network_type == "direction_det_net":
-        # "Even"-videos plays backward while "odd"-videos plays forward
-        if video_count % 2 == 0:
-            # Backward
-            frames.sort(key=natural_keys, reverse=True)
+    # Keep track of the direction: forward=1, backward=-1
+    is_forward = 1
 
-        if fps == 10:
-            for index in range(4, len(frames), 5):
-                # Add a new row
-                new_row = pd.DataFrame({
-                    "Frame_1": [frames[index - 4]],
-                    "Frame_2": [frames[index - 3]],
-                    "Frame_3": [frames[index - 2]],
-                    "Frame_4": [frames[index - 1]],
-                    "Frame_5": [frames[index]],
-                    "Label": video_count % 2  # Forward:1, Backward:0
-                }).reset_index(drop=True)
+    # "Even"-videos plays backward while "odd"-videos plays forward
+    if video_count % 2 == 0:
+        # Backward
+        frames.sort(key=natural_keys, reverse=True)
+        is_forward = -1
 
-                # Store labeled sequence of frames in dataframe
-                new_dataframe = pd.concat([new_row, dataframe.loc[:]]).reset_index(drop=True)
-                dataframe = new_dataframe
+    # Get all positions in current video
+    positions = get_positions_from_video(path_to_position_file)
 
-        elif fps == 5:
-            for index in range(9, len(frames), 10):
-                # Add a new row
-                new_row = pd.DataFrame({
-                    "Frame_1": [frames[index - 9]],  # 0
-                    "Frame_2": [frames[index - 7]],  # 2
-                    "Frame_3": [frames[index - 5]],  # 4
-                    "Frame_4": [frames[index - 3]],  # 6
-                    "Frame_5": [frames[index-1]],    # 8
-                    "Label": video_count % 2  # Forward:1, Backward:0
-                }).reset_index(drop=True)
+    # Get all possible positions and its airway segments
+    positions_and_airways = get_possible_positions_and_its_airways()
 
-                # Store labeled sequence of frames in dataframe
-                new_dataframe = pd.concat([new_row, dataframe.loc[:]]).reset_index(drop=True)
-                dataframe = new_dataframe
-
-        elif fps == 2:
-            for index in range(24, len(frames), 25):
-                # Add a new row
-                new_row = pd.DataFrame({
-                    "Frame_1": [frames[index - 24]],  # 0
-                    "Frame_2": [frames[index - 19]],  # 5
-                    "Frame_3": [frames[index - 14]],  # 10
-                    "Frame_4": [frames[index - 9]],   # 15
-                    "Frame_5": [frames[index-4]],     # 20
-                    "Label": video_count % 2  # Forward:1, Backward:0
-                }).reset_index(drop=True)
-
-                # Store labeled sequence of frames in dataframe
-                new_dataframe = pd.concat([new_row, dataframe.loc[:]]).reset_index(drop=True)
-                dataframe = new_dataframe
-
-    # Segment Detection Net
-    elif network_type == "segment_det_net":
-        # Get all positions in current video
-        positions = get_positions_from_video(path_to_position_file)
-
-        # Get all possible positions and its labels
-        positions_and_labels = get_possible_positions_and_its_labels()
-
-        # Match positions from video with possible positions to label the positions in video
-        dataframe = match_frames_with_positions_and_timestamps(positions, path_to_timestamp_file, frames, positions_and_labels, dataframe)
-    else:
-        print("No network type registered")
+    # Match positions from video with possible positions to label the positions in video
+    dataframe = match_frames_with_positions_and_timestamps(positions, path_to_timestamp_file, frames, positions_and_airways, dataframe, is_forward)
 
     return dataframe
 
 
-def crop_scale_and_label_the_frames(dataset_type, network_type, path_to_patients):
+def crop_scale_and_label_the_frames(path_to_patients):
     """ Crops the frames such that only the frame from the virtual video of the airway
     is stored and passed into the network. Overwrites the frames by storing the cropped
     frame as the frame """
 
-    # Crop the frame by specifications from the virtual dataset
-    if dataset_type == 'virtual' or dataset_type == 'phantom':
-        x_start = 538
-        y_start = 107
-        x_end = 1364
-        y_end = 1015
+    # Crop specifications from SINTEF Navigation device
+    x_start = 538
+    y_start = 107
+    x_end = 1364
+    y_end = 1015
 
-        if network_type == "direction_det_net":
-            dataframe = pd.DataFrame(columns=["Frame_1", "Frame_2", "Frame_3", "Frame_4", "Frame_5", "Label"])
+    # Create a list of all patients and remove hidden files like .DS_Store
+    patient_list = os.listdir(path_to_patients)
+    patient_list = list(filter(lambda x: not x.startswith("."), patient_list))
 
-        elif network_type == "segment_det_net":
-            dataframe = pd.DataFrame(columns=["Frame", "Label"])
-        else:
-            print("No network type registered")
-            dataframe = None
+    # Go through all patients and theirs sequences to get every frame
+    for patient in patient_list:
+        print("Going through patient: ", patient)
+        path_to_sequences = path_to_patients + "/" + patient
 
-        # Go through all persons and theirs sequences to get every frame
-        for patient in os.listdir(path_to_patients):
-            # Avoid going through hidden directories like .DS_Store
-            if not patient.startswith("."):
-                print("Going through patient: ", patient)
-                path_to_sequences = path_to_patients + "/" + patient
+        # Create a list of all sequences and remove hidden files like .DS_Store
+        sequences_list = os.listdir(path_to_sequences)
+        sequences_list = list(filter(lambda x: not x.startswith("."), sequences_list))
 
-                video_count = 1
-                # Go through all video sequences
-                for sequence in os.listdir(path_to_sequences):
+        video_count = 1
+        # Go through all video sequences for current patient
+        for sequence in sequences_list:
+            print("Going through sequence: ", sequence)
+            path_to_frames = path_to_sequences + "/" + sequence
 
-                    # Avoid going through hidden directories like .DS_Store
-                    if not sequence.startswith("."):
-                        print("Going through sequence: ", sequence)
-                        path_to_frames = path_to_sequences + "/" + sequence
-                        path_to_timestamp_file = ""
-                        path_to_position_file = ""
-                        frame_list = []
+            # Create a dataframe for each video sequence
+            dataframe = pd.DataFrame(columns=["Frame", "Airway_Segment", "Direction"])
 
-                        # Go through every frame in a video sequence
-                        for file in os.listdir(path_to_frames):
-                            # Avoid going through hidden directories like .DS_Store
-                            if not file.startswith("."):
-                                # Check for file being a frame
-                                if file.endswith(".png"):
-                                    path_to_frame = path_to_frames + "/" + file
-                                    frame = cv2.imread(path_to_frame)
+            # Create a list of all frames and remove hidden files like .DS_Store
+            file_list = os.listdir(path_to_frames)
+            file_list = list(filter(lambda x: not x.startswith("."), file_list))
 
-                                    # Check if frame is not cropped and scaled before
-                                    if frame.shape[0] > frame_dimension[0]:
+            path_to_timestamp_file = ""
+            path_to_position_file = ""
+            frame_list = []
 
-                                        # Crop the frame
-                                        frame_cropped = frame[y_start:y_end, x_start:x_end]
+            # Go through every frame in a video sequence
+            for file in file_list:
+                # Check for file being a frame
+                if file.endswith(".png"):
+                    path_to_frame = path_to_frames + "/" + file
+                    frame = cv2.imread(path_to_frame)
 
-                                        # Scale the frame down to frame_dimension set in parameters.py f.ex: (256, 256)
-                                        frame_scaled = cv2.resize(frame_cropped, frame_dimension, interpolation=cv2.INTER_AREA)
+                    # Check if frame is not cropped and scaled before
+                    if frame.shape[0] > frame_dimension[0]:
 
-                                        # Save the new frame
-                                        cv2.imwrite(path_to_frame, frame_scaled)
-                                        frame_list.append(path_to_frame)
+                        # Crop the frame
+                        frame_cropped = frame[y_start:y_end, x_start:x_end]
 
-                                    else:
-                                        #print("Frame is already cropped")
-                                        frame_list.append(path_to_frame)
+                        # Scale the frame down to frame_dimension set in parameters.py f.ex: (256, 256)
+                        frame_scaled = cv2.resize(frame_cropped, frame_dimension, interpolation=cv2.INTER_AREA)
 
-                                # File is the timestamp.txt file
-                                elif file.endswith("timestamps.txt"):
-                                    path_to_timestamp_file = path_to_frames + "/" + file
+                        # Save the new frame
+                        cv2.imwrite(path_to_frame, frame_scaled)
+                        frame_list.append(path_to_frame)
 
-                                # File is position.txt file
-                                elif file.endswith("positions.txt"):
-                                    path_to_position_file = path_to_frames + "/" + file
+                    else:
+                        #print("Frame is already cropped")
+                        frame_list.append(path_to_frame)
 
-                        # Add labels to the frames in current video
-                        dataframe = add_labels(network_type, path_to_timestamp_file, path_to_position_file, frame_list, dataframe, video_count)
-                        video_count += 1
+                # File is the timestamp.txt file
+                elif file.endswith("timestamps.txt"):
+                    path_to_timestamp_file = path_to_frames + "/" + file
 
-        # Perform sampling of relevant frames for SegmentDetNet
-        if network_type == "segment_det_net":
-            sampling_frequency = int((1 / fps) * 10)
-            dataframe = dataframe.iloc[::sampling_frequency, :]
+                # File is position.txt file
+                elif file.endswith("positions.txt"):
+                    path_to_position_file = path_to_frames + "/" + file
 
-        # Convert dataframe into CSV file in order to store the dataset as a file
-        print("Converting dataframe to csv file..")
-        path = dataset_path
-        dataframe.to_csv(path, index=False)
+            # Add labels to the frames in current sequence
+            dataframe = add_labels(path_to_timestamp_file, path_to_position_file, frame_list, dataframe, video_count)
+            video_count += 1
+
+            # Convert dataframe into CSV file in order to store the video sequence as a file
+            print(f"Converting {sequence} from dataframe to csv")
+            path = raw_dataset_path + f"{sequence}.csv"
+            dataframe.to_csv(path, index=False)
 
 
 def preprocess():
-    convert_video_to_frames(videos_path, frames_path)
-    crop_scale_and_label_the_frames(dataset_type, network_type, frames_path)
+    if convert_videos:
+        convert_video_to_frames(videos_path, frames_path)
+    crop_scale_and_label_the_frames(frames_path)

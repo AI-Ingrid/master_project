@@ -9,6 +9,7 @@ from test_models import test_model
 def main():
     """ The function running the entire pipeline of the project """
     seed(0)
+
     # Preprocess the data from videos to frames with labels
     preprocess()
 

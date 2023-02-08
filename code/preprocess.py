@@ -23,95 +23,92 @@ def convert_video_to_frames(input_data_path, output_data_path):
     output_path = pathlib.Path(output_data_path)
     output_path.mkdir(exist_ok=True)
 
-    # Create frames from video if no frames exist
-    if len(os.listdir(output_data_path)) <= 1:  # != 0
-        print("Converting frames..")
+    extract_frame_interval = 1  # Extract every x frames
 
-        extract_frame_interval = 1  # Extract every x frames
+    # Hard coded for now
+    nb_patients = 1
+    files_list = os.listdir(input_data_path)
 
-        # Hard coded for now
-        nb_patients = 1
-        files_list = os.listdir(input_data_path)
+    # Create list of videos
+    video_list = [fn for fn in files_list if
+                (fn.lower().endswith('.avi') or fn.lower().endswith('.mpg') or fn.lower().endswith('.mp4'))]
 
-        # Create list of videos
-        video_list = [fn for fn in files_list if
-                    (fn.lower().endswith('.avi') or fn.lower().endswith('.mpg') or fn.lower().endswith('.mp4'))]
+    # Create list of tuples with video, belonging timestamps and positions
+    label_list = []
+    video_list.sort()
+    for video_file in video_list:
+        video_name = video_file.split(".")[0]
+        timestamps_index = files_list.index(video_name + "_timestamps.txt")
+        position_index = files_list.index(video_name + "_positions.txt")
+        label_list.append((video_file, files_list[timestamps_index], files_list[position_index]))
 
-        # Create list of tuples with video, belonging timestamps and positions
-        label_list = []
-        video_list.sort()
-        for video_file in video_list:
-            video_name = video_file.split(".")[0]
-            timestamps_index = files_list.index(video_name + "_timestamps.txt")
-            position_index = files_list.index(video_name + "_positions.txt")
-            label_list.append((video_file, files_list[timestamps_index], files_list[position_index]))
+    for p in tqdm(range(nb_patients), 'Patient'):
+        # Create ./Patient_XX directory
+        next_patient_nbr = find_next_folder_nbr(dataset_dir=output_data_path)
+        patient_dir = os.path.join(output_data_path, f'Patient_{next_patient_nbr:03d}')
+        try:
+            os.makedirs(patient_dir, exist_ok=False)
+        except OSError as exc:
+            print(f"OSError: Patient folder {patient_dir} probably already exists")
+            exit(-1)
 
-        for p in tqdm(range(nb_patients), 'Patient'):
-            # Create ./Patient_XX directory
-            next_patient_nbr = find_next_folder_nbr(dataset_dir=output_data_path)
-            patient_dir = os.path.join(output_data_path, f'Patient_{next_patient_nbr:03d}')
+        videos_for_patient = [fn for fn in label_list]
+
+        # Generate sequences
+        for (video_fn, timestamp, position) in tqdm(videos_for_patient, 'Sequences'):
+
+            # Create ./Patient_XX/Sequence_XX directory
+            seq_nbr = find_next_folder_nbr(patient_dir)
+            seq_dir = os.path.join(patient_dir, f'Sequence_{seq_nbr:03d}')
             try:
-                os.makedirs(patient_dir, exist_ok=False)
+                os.makedirs(seq_dir, exist_ok=False)
             except OSError as exc:
-                print(f"OSError: Patient folder {patient_dir} probably already exists")
+                print(f"OSError: Sequence folder {seq_dir} probably already exists")
                 exit(-1)
 
-            videos_for_patient = [fn for fn in label_list]
+            # Save the timestamps belonging to the video in the correct Sequence folder
+            read_timestamp_file = pd.read_csv(input_data_path + "/" + timestamp)
+            read_timestamp_file.to_csv(seq_dir + "/" + timestamp, index=None)
 
-            # Generate sequences
-            for (video_fn, timestamp, position) in tqdm(videos_for_patient, 'Sequences'):
+            # Save the positions belonging to the video in the correct Sequence folder
+            read_positions_file = pd.read_csv(input_data_path + "/" + position)
+            read_positions_file.to_csv(seq_dir + "/" + position, index=None)
 
-                # Create ./Patient_XX/Sequence_XX directory
-                seq_nbr = find_next_folder_nbr(patient_dir)
-                seq_dir = os.path.join(patient_dir, f'Sequence_{seq_nbr:03d}')
-                try:
-                    os.makedirs(seq_dir, exist_ok=False)
-                except OSError as exc:
-                    print(f"OSError: Sequence folder {seq_dir} probably already exists")
-                    exit(-1)
+            # Get full path to video file and read video data
+            video_path = os.path.join(input_data_path, video_fn)
+            vid_reader = imageio.get_reader(video_path)
 
-                # Save the timestamps belonging to the video in the correct Sequence folder
-                read_timestamp_file = pd.read_csv(input_data_path + "/" + timestamp)
-                read_timestamp_file.to_csv(seq_dir + "/" + timestamp, index=None)
+            # TODO: Bruk np.array isteden
+            metadata = vid_reader.get_meta_data()
+            FPS = fps
+            metadata['fps'] = FPS
+            duration = metadata['duration']
+            nb_frames = math.floor(FPS * metadata['duration'])
+            print("Their duration: ", duration)
+            print("Number of frames: ", nb_frames)
 
-                # Save the positions belonging to the video in the correct Sequence folder
-                read_positions_file = pd.read_csv(input_data_path + "/" + position)
-                read_positions_file.to_csv(seq_dir + "/" + position, index=None)
+            # TODO: Kutte ut trimminga
+            trim_time = VideoTrimmingLimits(t1=0., t2=duration)
+            start_frame, end_frame = get_trim_start_end_frames(trim_time, FPS, nb_frames)
 
-                # Get full path to video file and read video data
-                video_path = os.path.join(input_data_path, video_fn)
-                vid_reader = imageio.get_reader(video_path)
-                metadata = vid_reader.get_meta_data()
-                FPS = fps
-                metadata['fps'] = FPS
-                duration = metadata['duration']
-                print("Their duration: ", duration)
-                nb_frames = math.floor(FPS * metadata['duration'])
-                print("Number of frames: ", nb_frames)
+            # Loop through the frames of the video
+            # TODO: Tar lang tid fordi jeg lager en figur for hvert frame, bedre å lagre numpy array for frame
+            for frnb, fr in enumerate(tqdm(range(start_frame, end_frame, int(extract_frame_interval)), 'Frames')):
+                arr = np.asarray(vid_reader.get_data(fr))   # Array: [H, W, 3]
 
-                trim_time = VideoTrimmingLimits(t1=0., t2=duration)
-                start_frame, end_frame = get_trim_start_end_frames(trim_time, FPS, nb_frames)
+                # Display figure and image
+                figure_size = (metadata['size'][0] / 100, metadata['size'][1] / 100)
+                fig = plt.figure(figsize=figure_size)
+                plt.imshow(arr, aspect='auto')
 
-                # Loop through the frames of the video
-                for frnb, fr in enumerate(tqdm(range(start_frame, end_frame, int(extract_frame_interval)), 'Frames')):
-                    arr = np.asarray(vid_reader.get_data(fr))   # Array: [H, W, 3]
+                # Adjust layout to avoid margins, axis ticks, etc. Save and close.
+                plt.axis('off')
+                plt.tight_layout(pad=0)
+                plt.savefig(os.path.join(seq_dir, f'frame_{frnb:d}.png'))
+                plt.close(fig)
 
-                    # Display figure and image
-                    figure_size = (metadata['size'][0] / 100, metadata['size'][1] / 100)
-                    fig = plt.figure(figsize=figure_size)
-                    plt.imshow(arr, aspect='auto')
-
-                    # Adjust layout to avoid margins, axis ticks, etc. Save and close.
-                    plt.axis('off')
-                    plt.tight_layout(pad=0)
-                    plt.savefig(os.path.join(seq_dir, f'frame_{frnb:d}.png'))
-                    plt.close(fig)
-
-                # Close reader before moving (video) files
-                vid_reader.close()
-    else:
-        print("Frames exist! No converting necessary")
-
+            # Close reader before moving (video) files
+            vid_reader.close()
 
 def get_positions_from_video(path_to_position_file):
     """ Help function that reads positions from a position file and returns an array with tuples

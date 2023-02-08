@@ -211,6 +211,7 @@ class Trainer:
         for epoch in range(self.epochs):
             self.epoch = epoch
             print("Epoch: ", epoch)
+
             # Perform a full pass through all the training samples
             for X_batch, Y_batch in tqdm(self.dataloader_train):
                 loss = self.train_step(X_batch, Y_batch)

@@ -1,23 +1,27 @@
 """
-File for setting parameters for the project
+File for setting all parameters for the master project
 """
-import torch
+# Preprocessing
+frame_dimension = (512, 512)  # Dimension of the scaled frames that will be sent into CNN
+fps = 20  # Sampling frequency for video to frames
 
-# Preprocessing and datasets
-dataset_type = 'synthetic'  # {'synthetic' 'human'}
 convert_videos = False  # Convert to frames or not
-test_split = 0.2
-validation_split = 0.1
-frame_dimension = (256, 256)  # Dimension of the cropped frames that will be sent into CNN
-fps = 10  # {10, 5}
+# Data Augmentation
+
+
+# Datasets
+dataset_type = 'synthetic'  # {'synthetic' 'human'}
+test_split = 0.2  # Fraction that split data into test data
+validation_split = 0.1  # Fraction that split data into validation data
+num_frames_in_stack = 30  # Num frames in a stack that gets sent into RNN
+slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack TODO: Vurdere en variabel her som feks random mellom 3- 7
+num_stacks = 1000
+
+data_is_split = True  # True means data is already  split into train, test or validation, false means perform split
+
 
 # Neural nets details
 num_classes = 27
-train_mean = torch.tensor([0.4678, 0.3913, 0.3522])
-test_mean = torch.tensor([0.4654, 0.3889, 0.3505])
-train_std = torch.tensor([0.2417, 0.1829, 0.1488])
-test_std = torch.tensor([0.2422, 0.1825, 0.1487])
-num_bronchus_generations = 4  # {1, 2, 3, 4}
 hidden_nodes = 128
 
 # Training specifications
@@ -27,9 +31,10 @@ learning_rate = 7e-5
 early_stop_count = 5
 alpha = 0.25
 gamma = 2.0
+
 load_best_model = True
 
-# Testing specifications
+# Testing trained model
 get_data_dist = True
 get_loss_and_accuracy = True
 get_confusion_metrics = True
@@ -37,7 +42,8 @@ get_testset_pred = True
 get_f1_score = True
 
 # Data paths
-root_directory_path = f"/cluster/home/ingrikol/master/data/{dataset_type}"
+#root_directory_path = f"/cluster/home/ingrikol/master/data/{dataset_type}"    #  IDUN
+root_directory_path = "/Users/ikolderu/PycharmProjects/master/data/synthetic"  # LOCAL
 videos_path = root_directory_path + f"/{dataset_type}_videos/"
 frames_path = root_directory_path + f"/{dataset_type}_frames"
 label_file_path = root_directory_path + f"/labeling_info/{dataset_type}_branches_positions_numbers.txt"

@@ -2,21 +2,18 @@ import os
 import math
 import imageio
 import cv2
-
 import pandas as pd
 import numpy as np
 import matplotlib
 import pathlib
 import matplotlib.pyplot as plt
-from tqdm import tqdm   # create progress bars, see sample usage below
+from tqdm import tqdm
 from scipy.spatial.distance import cdist
-
-from parameters import videos_path, convert_videos, frames_path, fps, label_file_path, frame_dimension, raw_dataset_path
 from utils.data_utils import get_trim_start_end_frames, VideoTrimmingLimits, find_next_folder_nbr, natural_keys
 matplotlib.use('Agg')   # Use 'Agg' backend to avoid memory overload
 
 
-def convert_video_to_frames(input_data_path, output_data_path):
+def convert_video_to_frames(input_data_path, output_data_path, fps):
     """
     Code build upon work from author: Ingrid Tveten (SINTEF)
     """
@@ -110,6 +107,7 @@ def convert_video_to_frames(input_data_path, output_data_path):
             # Close reader before moving (video) files
             vid_reader.close()
 
+
 def get_positions_from_video(path_to_position_file):
     """ Help function that reads positions from a position file and returns an array with tuples
     representing a position (x_pos, y_pos, z_pos). The position file is complex and uses 3 lines to
@@ -151,7 +149,7 @@ def get_positions_from_video(path_to_position_file):
     return positions
 
 
-def get_possible_positions_and_its_airways():
+def get_possible_positions_and_its_airways(label_file_path):
     # Create a function for reading branches_position_numbers.txt file
     positions_labels_file = open(label_file_path)
     lines = positions_labels_file.readlines()
@@ -184,7 +182,7 @@ def get_possible_positions_and_its_airways():
     return positions_and_labels
 
 
-def match_frames_with_positions_and_timestamps(positions, path_to_timestamp_file, frames, positions_and_labels, dataframe, is_forward):
+def match_frames_with_positions_and_timestamps(fps, positions, path_to_timestamp_file, frames, positions_and_labels, dataframe, is_forward):
     # Get frame sampling ratio in ms
     frame_sampling_ratio = 1/fps * 1000
 
@@ -239,35 +237,35 @@ def match_frames_with_positions_and_timestamps(positions, path_to_timestamp_file
     return new_dataframe
 
 
-def add_labels(path_to_timestamp_file, path_to_position_file, frames, dataframe, video_count):
+def add_labels(path_to_timestamp_file, path_to_position_file, frames, dataframe, video_count, label_file_path, fps):
     """A help function for crop_scale_and_label_frames that labels the frames in a specific
     sequence given from the path_to_frames parameter
     """
     # Sort the list of frames from the video
     frames.sort(key=natural_keys)
 
-    # Keep track of the direction: forward=1, backward=-1
+    # Keep track of the direction: forward=1, backward=0
     is_forward = 1
 
     # "Even"-videos plays backward while "odd"-videos plays forward
     if video_count % 2 == 0:
         # Backward
         frames.sort(key=natural_keys, reverse=True)
-        is_forward = -1
+        is_forward = 0
 
     # Get all positions in current video
     positions = get_positions_from_video(path_to_position_file)
 
     # Get all possible positions and its airway segments
-    positions_and_airways = get_possible_positions_and_its_airways()
+    positions_and_airways = get_possible_positions_and_its_airways(label_file_path)
 
     # Match positions from video with possible positions to label the positions in video
-    dataframe = match_frames_with_positions_and_timestamps(positions, path_to_timestamp_file, frames, positions_and_airways, dataframe, is_forward)
+    dataframe = match_frames_with_positions_and_timestamps(fps, positions, path_to_timestamp_file, frames, positions_and_airways, dataframe, is_forward)
 
     return dataframe
 
 
-def crop_scale_and_label_the_frames(path_to_patients):
+def crop_scale_and_label_the_frames(path_to_patients, frame_dimension, raw_dataset_path, label_file_path, fps):
     """ Crops the frames such that only the frame from the virtual video of the airway
     is stored and passed into the network. Overwrites the frames by storing the cropped
     frame as the frame """
@@ -293,8 +291,7 @@ def crop_scale_and_label_the_frames(path_to_patients):
 
         video_count = 1
         # Go through all video sequences for current patient
-        for sequence in sequences_list:
-            print("Going through sequence: ", sequence)
+        for sequence in tqdm(sequences_list):
             path_to_frames = path_to_sequences + "/" + sequence
 
             # Create a dataframe for each video sequence
@@ -315,22 +312,16 @@ def crop_scale_and_label_the_frames(path_to_patients):
                     path_to_frame = path_to_frames + "/" + file
                     frame = cv2.imread(path_to_frame)
 
-                    # Check if frame is not cropped and scaled before
-                    if frame.shape[0] > frame_dimension[0]:
+                    # Crop the frame
+                    frame_cropped = frame[y_start:y_end, x_start:x_end]
 
-                        # Crop the frame
-                        frame_cropped = frame[y_start:y_end, x_start:x_end]
+                    # Scale the frame down to frame_dimension set in parameters.py f.ex: (256, 256)
+                    frame_scaled = cv2.resize(frame_cropped, frame_dimension, interpolation=cv2.INTER_AREA)
 
-                        # Scale the frame down to frame_dimension set in parameters.py f.ex: (256, 256)
-                        frame_scaled = cv2.resize(frame_cropped, frame_dimension, interpolation=cv2.INTER_AREA)
+                    # Save the new frame
+                    cv2.imwrite(path_to_frame, frame_scaled)
+                    frame_list.append(path_to_frame)
 
-                        # Save the new frame
-                        cv2.imwrite(path_to_frame, frame_scaled)
-                        frame_list.append(path_to_frame)
-
-                    else:
-                        #print("Frame is already cropped")
-                        frame_list.append(path_to_frame)
 
                 # File is the timestamp.txt file
                 elif file.endswith("timestamps.txt"):
@@ -341,16 +332,18 @@ def crop_scale_and_label_the_frames(path_to_patients):
                     path_to_position_file = path_to_frames + "/" + file
 
             # Add labels to the frames in current sequence
-            dataframe = add_labels(path_to_timestamp_file, path_to_position_file, frame_list, dataframe, video_count)
+            dataframe = add_labels(path_to_timestamp_file, path_to_position_file, frame_list, dataframe, video_count, label_file_path, fps)
             video_count += 1
 
             # Convert dataframe into CSV file in order to store the video sequence as a file
-            print(f"Converting {sequence} from dataframe to csv")
+            #print(f"Converting {sequence} from dataframe to csv")
             path = raw_dataset_path + f"{sequence}.csv"
             dataframe.to_csv(path, index=False)
 
 
-def preprocess():
+def preprocess(convert_videos, crop_scale_label_videos, videos_path, frames_path, fps, frame_dimension, raw_dataset_path, label_file_path):
     if convert_videos:
-        convert_video_to_frames(videos_path, frames_path)
-    crop_scale_and_label_the_frames(frames_path)
+        convert_video_to_frames(videos_path, frames_path, fps)
+    if crop_scale_label_videos:
+        crop_scale_and_label_the_frames(path_to_patients=frames_path, frame_dimension=frame_dimension,
+                                    raw_dataset_path=raw_dataset_path, label_file_path=label_file_path, fps=fps)

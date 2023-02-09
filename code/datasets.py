@@ -1,18 +1,21 @@
 from preprocess import *
-from torch.utils.data import Dataset
-from parameters import dataset_path, test_split, batch_size, validation_split, data_is_split, num_stacks, num_frames_in_stack, slide_ratio_in_stack
+from torch.utils.data import Dataset, DataLoader
 from pathlib import PurePath
+import torch
+from skimage import io
 
 
 class RandomGeneratorDataset(Dataset):
     """ Dataset class for the lung airway net that generates
     random stacks consisting of 'num_frames_in_stack' frames with
     a 'slide_ratio_in_stack' ratio between each frame for a random video """
-    def __init__(self, file_list, num_stacks, num_frames, slide_ratio):
+    def __init__(self, file_list, num_stacks, num_frames, slide_ratio, num_airway_segment_classes, num_direction_classes):
         self.file_list = file_list
         self.num_stacks = num_stacks
         self.num_frames = num_frames
         self.slide_ratio = slide_ratio
+        self.num_airway_segment_classes = num_airway_segment_classes
+        self.num_direction_classes = num_direction_classes
         self.label_map_dict = {
                 1: [1, "Trachea"],
                 5: [2, "Right Main Bronchus"],
@@ -65,13 +68,20 @@ class RandomGeneratorDataset(Dataset):
         stack_df = self.relabel_airway_segments(stack_df)
 
         # Distort the stack's data into frames, airway labels and direction labels
-        frames = stack_df["Frame"]
+        frame_paths = stack_df["Frame"]
         airway_labels = stack_df["Airway_Segment"]
         direction_labels = stack_df["Direction"]
 
-        # TODO: yield eller returne
-        # TODO: Too torch? To Tensor?? To float?? Noe pytorch shit??
-        return frames, airway_labels, direction_labels
+        # Transform
+        frames = []
+        for frame_path in frame_paths:
+            frames.append(io.imread(frame_path))
+
+        frames = torch.tensor(frames)
+        airway_labels = torch.nn.functional.one_hot(torch.tensor(airway_labels.values), self.num_airway_segment_classes)
+        direction_labels = torch.nn.functional.one_hot(torch.tensor(direction_labels.values), self.num_direction_classes)
+
+        return frames, [airway_labels, direction_labels]
 
     def perform_mapping(self, label):
         # Label is >= num_generations we are looking at
@@ -88,6 +98,7 @@ class RandomGeneratorDataset(Dataset):
         Method also deleted frames that has a larger generation than the one entered
         """
         # Change label by using the given mapping system
+        # TODO: Use .iloc, SettingWithCopyWarning
         stack["Airway_Segment"] = stack["Airway_Segment"].apply(lambda label: self.perform_mapping(label))
 
         # Remove frames not belonging to the generation chosen (labeled with 0)
@@ -96,14 +107,14 @@ class RandomGeneratorDataset(Dataset):
         return stack
 
 
-def move_location(videos, new_location):
+def move_location(videos, new_location, raw_dataset_path):
     for video in videos:
         temp_dataframe = pd.read_csv(raw_dataset_path + "/" + video)
         new_path = PurePath(new_location, video)
         temp_dataframe.to_csv(new_path, index=False)
 
 
-def split_data(validation_split, test_split, raw_dataset_path, dataset_path):
+def split_data(validation_split, test_split, raw_dataset_path, dataset_path, data_is_split):
     """
     Splits the given raw_data into datasets/train, datasets/test or datasets/validation.
     A video is represented as a csv file with all its frames and belonging labels
@@ -137,43 +148,49 @@ def split_data(validation_split, test_split, raw_dataset_path, dataset_path):
         train_videos_paths = [index for index in temp_videos_paths if index not in test_videos_paths]
 
         # Move videos to correct folder: train, test or validation
-        move_location(validation_videos_paths, new_validation_path + "/")
-        move_location(test_videos_paths, new_test_path + "/")
-        move_location(train_videos_paths, new_train_path + "/")
+        move_location(validation_videos_paths, new_validation_path + "/", raw_dataset_path)
+        move_location(test_videos_paths, new_test_path + "/", raw_dataset_path)
+        move_location(train_videos_paths, new_train_path + "/", raw_dataset_path)
 
     # Data is already split
-    else:
-        validation_videos_paths = [os.path.join(new_validation_path, file) for file in list(os.listdir(new_validation_path))]
-        test_videos_paths = [os.path.join(new_test_path, file) for file in list(os.listdir(new_test_path))]
-        train_videos_paths = [os.path.join(new_train_path, file) for file in list(os.listdir(new_train_path))]
-
-        #validation_videos_paths = list(filter(lambda x: not x.startswith("."), validation_videos_paths))
-        #test_videos_paths = list(filter(lambda x: not x.startswith("."), test_videos_paths ))
-        #train_videos_paths = list(filter(lambda x: not x.startswith("."), train_videos_paths))
+    validation_videos_paths = [os.path.join(new_validation_path, file) for file in list(os.listdir(new_validation_path))]
+    test_videos_paths = [os.path.join(new_test_path, file) for file in list(os.listdir(new_test_path))]
+    train_videos_paths = [os.path.join(new_train_path, file) for file in list(os.listdir(new_train_path))]
 
     # Return a list with filenames for each folder: train, test and validation
     return train_videos_paths, test_videos_paths, validation_videos_paths
 
 
-def create_datasets_and_dataloaders():
+def create_datasets_and_dataloaders(validation_split, test_split, raw_dataset_path, dataset_path,
+                                    num_stacks, num_frames_in_stack, slide_ratio_in_stack, batch_size,
+                                    shuffle_dataset, data_is_split, num_airway_segment_classes, num_direction_classes):
     # Split data in Train, Test and Validation
-    train, test, validation = split_data(validation_split, test_split, raw_dataset_path, dataset_path)
+    train, test, validation = split_data(validation_split=validation_split, test_split=test_split,
+                                         raw_dataset_path=raw_dataset_path, dataset_path=dataset_path,
+                                         data_is_split=data_is_split)
 
-    # Create Train Dataset
-    train_dataset = RandomGeneratorDataset(train, num_stacks, num_frames_in_stack, slide_ratio_in_stack)
-    print("Length of train: ", len(train_dataset))
-    print("Element 0 from train: ", train_dataset[0])
+    # Create Train Dataset and DataLoader
+    train_dataset = RandomGeneratorDataset(file_list=train, num_stacks=num_stacks,
+                                           num_frames=num_frames_in_stack, slide_ratio=slide_ratio_in_stack,
+                                           num_airway_segment_classes=num_airway_segment_classes,
+                                           num_direction_classes=num_direction_classes)
 
-    # Create Test Dataset
-    test_dataset = RandomGeneratorDataset(test, num_stacks, num_frames_in_stack, slide_ratio_in_stack)
-    print("Length of test: ", len(test_dataset))
+    train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=shuffle_dataset)
 
-    # Create Validation DataSet
-    validation_dataset = RandomGeneratorDataset(validation, num_stacks, num_frames_in_stack, slide_ratio_in_stack)
-    print("Length of validation: ", len(validation_dataset))
+    # Create Test Dataset and DataLoader
+    test_dataset = RandomGeneratorDataset(file_list=test, num_stacks=num_stacks,
+                                          num_frames=num_frames_in_stack, slide_ratio=slide_ratio_in_stack,
+                                          num_airway_segment_classes=num_airway_segment_classes,
+                                          num_direction_classes=num_direction_classes)
 
+    test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=shuffle_dataset)
 
+    # Create Validation DataSet and DataLoader
+    validation_dataset = RandomGeneratorDataset(file_list=validation, num_stacks=num_stacks,
+                                          num_frames=num_frames_in_stack, slide_ratio=slide_ratio_in_stack,
+                                          num_airway_segment_classes=num_airway_segment_classes,
+                                          num_direction_classes=num_direction_classes)
 
-create_datasets_and_dataloaders()
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=batch_size, shuffle=shuffle_dataset)
 
-
+    return train_dataloader, test_dataloader, validation_dataloader

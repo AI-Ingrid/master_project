@@ -2,10 +2,12 @@
 File for setting all parameters for the master project
 """
 # Preprocessing
-frame_dimension = (512, 512)  # Dimension of the scaled frames that will be sent into CNN
-fps = 20  # Sampling frequency for video to frames
+frame_dimension = (384, 384)  # Dimension of the scaled frames that will be sent into CNN
+fps = 10  # Sampling frequency for video to frames
 
 convert_videos = False  # Convert to frames or not
+crop_scale_label_videos = True  # Crop, scale and label the frames
+
 # Data Augmentation
 
 
@@ -17,11 +19,12 @@ num_frames_in_stack = 30  # Num frames in a stack that gets sent into RNN
 slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack TODO: Vurdere en variabel her som feks random mellom 3- 7
 num_stacks = 1000
 
-data_is_split = True  # True means data is already  split into train, test or validation, false means perform split
-
+data_is_split = False  # True means data is already  split into train, test or validation, false means perform split
+shuffle_dataset = True
 
 # Neural nets details
-num_classes = 27
+num_airway_segment_classes = 27
+num_direction_classes = 2
 hidden_nodes = 128
 
 # Training specifications
@@ -29,6 +32,7 @@ epochs = 20
 batch_size = 32
 learning_rate = 7e-5
 early_stop_count = 5
+num_validations = 4  # Num times for validation our model during training
 alpha = 0.25
 gamma = 2.0
 

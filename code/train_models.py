@@ -1,24 +1,21 @@
 import typing
 import time
 import collections
-import torchvision
-
-from utils.neural_nets_utils import to_cuda,  decode_one_hot_encoded_labels, \
-    save_checkpoint, load_best_checkpoint
 import pathlib
 import numpy as np
 import matplotlib.pyplot as plt
-from parameters import batch_size, learning_rate, early_stop_count, \
-    epochs, network_type, fps, train_plot_path, train_plot_name
 import torchmetrics.classification as tm
 import torch
 from tqdm import tqdm
+from utils.neural_nets_utils import to_cuda,  decode_one_hot_encoded_labels, save_checkpoint, load_best_checkpoint
 
 
 def compute_loss_and_accuracy(
         dataloader: torch.utils.data.DataLoader,
         model: torch.nn.Module,
-        loss_criterion: torch.nn.modules.loss._Loss):
+        loss_criterion: torch.nn.modules.loss._Loss,
+        num_airway_segment_classes: int,
+        num_direction_classes: int):
     """
     Computes the average loss and the accuracy over the whole dataset
     in dataloader.
@@ -30,14 +27,14 @@ def compute_loss_and_accuracy(
         [average_loss, accuracy]: both scalar.
     """
     average_loss = 0
-    f1 = 0
+    f1_airway_segment = 0
+    f1_direction = 0
     num_samples = 0
     batch_size = 0
 
-    if network_type == "segment_det_net":
-        f1_metric = tm.F1Score(average='macro', task='multilabel', num_classes=27)
-    else:
-        f1_metric = tm.F1Score(average='macro', task='multilabel', num_classes=2)
+    # Handle unbalanced dataset with the use of F1 Macro Score
+    f1_airway_segment_metric = tm.F1Score(average='macro', task='multilabel', num_classes=num_airway_segment_classes)
+    f1_direction_metric = tm.F1Score(average='macro', task='multilabel', num_classes=num_direction_classes)
 
     with torch.no_grad():
         for (X_batch, Y_batch) in tqdm(dataloader):
@@ -49,23 +46,32 @@ def compute_loss_and_accuracy(
             output_probs = model(X_batch)
 
             predictions = torch.softmax(output_probs, dim=1)
-            decoded_Y_batch = decode_one_hot_encoded_labels(Y_batch)
-            targets = torch.tensor(np.array(decoded_Y_batch))
 
-            num_samples += Y_batch.shape[0]
+            decoded_airway_segment_targets = decode_one_hot_encoded_labels(Y_batch[0])
+            decoded_direction_targets = decode_one_hot_encoded_labels(Y_batch[1])
+
+            airway_segment_targets = torch.tensor(np.array(decoded_airway_segment_targets))
+            direction_targets = torch.tensor(np.array(decoded_direction_targets))
+
+            num_samples += Y_batch[0].shape[0]
 
             # Compute F1 Score
-            f1 += f1_metric(predictions.cpu(), targets.cpu())
+            f1_airway_segment += f1_airway_segment_metric(predictions.cpu(), airway_segment_targets.cpu())
+            f1_direction += f1_direction_metric(predictions.cpu(), direction_targets.cpu())
 
             # Compute Loss
             average_loss += loss_criterion(output_probs, Y_batch)
             batch_size += 1
 
     average_loss = average_loss / batch_size
-    f1 = f1 / batch_size
-    print(f'F1 score: {f1}')
+    f1_airway_segment = f1_airway_segment / batch_size
+    f1_direction = f1_direction / batch_size
+
+    print(f'F1 Airway Segment Score: {f1_airway_segment}')
+    print(f'F1 Direction Score: {f1_direction}')
     print(f'Loss: {average_loss}')
-    return average_loss, f1
+
+    return average_loss, f1_airway_segment, f1_direction
 
 
 class Trainer:
@@ -75,10 +81,13 @@ class Trainer:
                  learning_rate: float,
                  early_stop_count: int,
                  epochs: int,
+                 num_validations: int,
                  model: torch.nn.Module,
-                 dataloaders: typing.List[torch.utils.data.DataLoader],
-                 network_type: str,
-                 fps: int):
+                 train_dataloader: typing.List[torch.utils.data.DataLoader],
+                 validation_dataloader: typing.List[torch.utils.data.DataLoader],
+                 fps: int,
+                 num_airway_segment_classes: int,
+                 num_direction_classes: int):
         """
             Initialize our trainer class.
         """
@@ -86,41 +95,53 @@ class Trainer:
         self.learning_rate = learning_rate
         self.early_stop_count = early_stop_count
         self.epochs = epochs
-        self.network_type = network_type
-        self.fps = fps
-
-        # Since we are doing multi-class classification, we use CrossEntropyLoss
-        self.loss_criterion = torch.nn.CrossEntropyLoss()
+        self.num_validations = num_validations
 
         # Initialize the model
         self.model = model
 
+        # Load our dataset
+        self.train_dataloader = train_dataloader
+        self.validation_dataloader = validation_dataloader
+
+        # Set variables
+        self.fps = fps
+        self.num_airway_segment_classes = num_airway_segment_classes
+        self.num_direction_classes = num_direction_classes
+
+        # Set loss criterion
+        self.loss_criterion = torch.nn.CrossEntropyLoss()
+
         # Transfer model to GPU VRAM, if possible.
         self.model = to_cuda(self.model)
 
-        # Define our optimizer.
+        # Define the optimizer
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           self.learning_rate)
 
-        # Load our dataset
-        self.dataloader_train, self.dataloader_val = dataloaders
-
-        # Validate our model everytime we pass through 25% of the dataset
-        self.num_steps_per_val = len(self.dataloader_train) // 4
+        # Validate the model everytime we pass through 1/num_validations of the dataset
+        self.num_steps_per_val = len(self.train_dataloader) // self.num_validations
         self.global_step = 0
         self.start_time = time.time()
 
-        # Tracking variables
+        # Tracking losses and accuracy
         self.train_history = dict(
-            loss=collections.OrderedDict(),
-            accuracy=collections.OrderedDict()
-
+            airway_segment_loss=collections.OrderedDict(),
+            direction_loss=collections.OrderedDict(),
+            combined_loss=collections.OrderedDict(),
+            airway_segment_acc=collections.OrderedDict(),
+            direction_acc=collections.OrderedDict(),
+            combined_acc=collections.OrderedDict(),
         )
         self.validation_history = dict(
-            loss=collections.OrderedDict(),
-            accuracy=collections.OrderedDict()
+            airway_segment_loss=collections.OrderedDict(),
+            direction_loss=collections.OrderedDict(),
+            combined_loss=collections.OrderedDict(),
+            airway_segment_acc=collections.OrderedDict(),
+            direction_acc=collections.OrderedDict(),
+            combined_acc=collections.OrderedDict(),
         )
-        self.checkpoint_dir = pathlib.Path(f"checkpoints_{self.network_type}_{self.fps}")
+        self.checkpoint_dir = pathlib.Path(f"checkpoints_{self.fps}")
 
     def validation_step(self):
         """
@@ -129,21 +150,26 @@ class Trainer:
         """
         self.model.eval()
 
-        training_loss, training_acc = compute_loss_and_accuracy(self.dataloader_train, self.model, self.loss_criterion)
-        self.train_history["accuracy"][self.global_step] = training_acc
+        train_airway_segment_loss, train_direction_loss, train_acc = compute_loss_and_accuracy(self.train_dataloader, self.model, self.loss_criterion, self.num_airway_segment_classes, self.num_direction_classes)
+        self.train_history["airway_segment_loss"][self.global_step] = train_airway_segment_loss
+        self.train_history["direction_loss"][self.global_step] = train_direction_loss
+        self.train_history["accuracy"][self.global_step] = train_acc
 
-        validation_loss, validation_acc = compute_loss_and_accuracy(self.dataloader_val, self.model, self.loss_criterion)
-        self.validation_history["loss"][self.global_step] = validation_loss
-        self.validation_history["accuracy"][self.global_step] = validation_acc
+        val_airway_segment_loss, val_direction_loss, val_acc = compute_loss_and_accuracy(self.validation_dataloader, self.model, self.loss_criterion, self.num_airway_segment_classes, self.num_direction_classes)
+        self.validation_history["airway_segment_loss"][self.global_step] = val_airway_segment_loss
+        self.validation_history["direction_loss"][self.global_step] = val_direction_loss
+        self.validation_history["combined_loss"][self.global_step] = val_airway_segment_loss + val_direction_loss
+        self.validation_history["accuracy"][self.global_step] = val_acc
 
         used_time = time.time() - self.start_time
         print(
             f"Epoch: {self.epoch:>1}",
             f"Batches per seconds: {self.global_step / used_time:.2f}",
             f"Global step: {self.global_step:>6}",
-            f"Validation Loss: {validation_loss:.2f}",
-            f"Validation Accuracy: {validation_acc:.3f}",
-            f"Train Accuracy: {training_acc:.3f}",
+            f"Validation Airway Segment Loss: {val_airway_segment_loss:.2f}",
+            f"Validation Direction Loss: {val_direction_loss:.2f}",
+            f"Validation Accuracy: {val_acc:.3f}",
+            f"Train Accuracy: {train_acc:.3f}",
             sep=", ")
         self.model.train()
 
@@ -152,7 +178,7 @@ class Trainer:
             Checks if validation loss doesn't improve over early_stop_count epochs.
         """
         # Check if we have more than early_stop_count elements in our validation_loss list.
-        val_loss = self.validation_history["loss"]
+        val_loss = self.validation_history["combined_loss"]
         if len(val_loss) < self.early_stop_count:
             return False
         # We only care about the last [early_stop_count] losses.
@@ -174,12 +200,6 @@ class Trainer:
         Returns:
             loss value (float) on batch
         """
-        # X_batch is the CIFAR10 images. Shape: [batch_size, 3, 32, 32]
-        # Y_batch is the CIFAR10 image label. Shape: [batch_size]
-        # Transfer images / labels to GPU VRAM, if possible
-
-        # Shape is [64, 3, 32, 32]
-        # Er av typen <class 'torch.Tensor'>
         X_batch = to_cuda(X_batch)
         Y_batch = to_cuda(Y_batch)
 
@@ -187,10 +207,16 @@ class Trainer:
         predictions = self.model(X_batch)
 
         # Compute the cross entropy loss for the batch
-        loss = self.loss_criterion(predictions, Y_batch)
+        airway_segment_loss = self.loss_criterion(predictions, Y_batch[0])
+        direction_loss = self.loss_criterion(predictions, Y_batch[1])
+
+        # Compute combined loss
+        # TODO: vekting på lossa ln(num_classes)
+        # TODO: L1 * w1 + L2* w2 (vekt-forholdstall)
+        combined_loss = airway_segment_loss + direction_loss
 
         # Backpropagation
-        loss.backward()
+        combined_loss.backward()
 
         # Gradient descent step
         self.optimizer.step()
@@ -198,7 +224,7 @@ class Trainer:
         # Reset all computed gradients to 0
         self.optimizer.zero_grad()
 
-        return loss.detach().cpu().item()
+        return airway_segment_loss.detach().cpu().item(), direction_loss.detach().cpu().item(), combined_loss.detach().cpu().item()
 
     def train(self):
         """
@@ -213,10 +239,14 @@ class Trainer:
             print("Epoch: ", epoch)
 
             # Perform a full pass through all the training samples
-            for X_batch, Y_batch in tqdm(self.dataloader_train):
-                loss = self.train_step(X_batch, Y_batch)
-                self.train_history["loss"][self.global_step] = loss
+            for X_batch, Y_batch in tqdm(self.train_dataloader):
+                airway_segment_loss, direction_loss, combined_loss = self.train_step(X_batch, Y_batch)
+                self.train_history["airway_segment_loss"][self.global_step] = airway_segment_loss
+                self.train_history["direction_loss"][self.global_step] = direction_loss
+                self.train_history["combined_loss"][self.global_step] = combined_loss
+
                 self.global_step += 1
+
                 # Compute loss/accuracy for validation set
                 if should_validate_model():
                     self.validation_step()
@@ -287,8 +317,18 @@ def create_plots(trainer: Trainer, path: str, name: str):
     plt.figure(figsize=(20, 8))
     plt.subplot(1, 2, 1)
     plt.title("Cross Entropy Loss")
-    plot_loss(trainer.train_history["loss"], label="Training loss", npoints_to_average=10)
-    plot_loss(trainer.validation_history["loss"], label="Validation loss")
+    # Airway Segment Loss
+    plot_loss(trainer.train_history["airway_segment_loss"], label="Training combined loss")
+    plot_loss(trainer.validation_history["airway_segment_loss"], label="Validation combined loss")
+
+    # Direction Loss
+    plot_loss(trainer.train_history["direction_loss"], label="Training combined loss")
+    plot_loss(trainer.validation_history["direction_loss"], label="Validation combined loss")
+
+    # Combined loss
+    plot_loss(trainer.train_history["combined_loss"], label="Training combined loss")
+    plot_loss(trainer.validation_history["combined_loss"], label="Validation combined loss")
+
     plt.legend()
     plt.subplot(1, 2, 2)
     plt.title("Accuracy")
@@ -299,16 +339,21 @@ def create_plots(trainer: Trainer, path: str, name: str):
     plt.show()
 
 
-def train_model(neural_net, train_dataloader):
+def train_model(batch_size, learning_rate, early_stop_count, epochs, num_validations,
+                neural_net, train_dataloader, validation_dataloader, fps, train_plot_path,
+                train_plot_name, num_airway_segment_classes, num_direction_classes):
     trainer = Trainer(
         batch_size,
         learning_rate,
         early_stop_count,
         epochs,
+        num_validations,
         neural_net,
         train_dataloader,
-        network_type,
+        validation_dataloader,
         fps,
+        num_airway_segment_classes,
+        num_direction_classes
     )
     trainer.train()
 

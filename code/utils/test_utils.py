@@ -1,9 +1,9 @@
 from matplotlib import pyplot as plt
 from pathlib import Path
-from neural_nets_utils import to_cuda, decode_one_hot_encoded_labels
+from utils.neural_nets_utils import to_cuda, decode_one_hot_encoded_labels
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, f1_score
 import numpy as np
-from data_utils import get_label_name
+from utils.data_utils import get_label_name
 
 
 def plot_confusion_metrics(test_set, trainer, path, get_confusion_metrics, network_type):

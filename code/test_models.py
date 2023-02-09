@@ -1,4 +1,4 @@
-from parameters import load_best_model, confusion_metrics_path, test_plot_path, network_type, get_data_dist, get_loss_and_accuracy, get_confusion_metrics, get_f1_score, get_testset_pred
+from parameters import load_best_model, confusion_metrics_path, test_plot_path, get_data_dist, get_loss_and_accuracy, get_confusion_metrics, get_f1_score, get_testset_pred
 from utils.data_utils import plot_dataset_distribution
 from train_models import compute_loss_and_accuracy
 from torch.nn import CrossEntropyLoss
@@ -40,11 +40,11 @@ def test_model(trainer, train_dataloader, test_dataloader, neural_net):
 
     # Confusion metrics
     print("plotting confusion metrics")
-    plot_confusion_metrics(test, trainer, confusion_metrics_path, get_confusion_metrics, network_type)
+    plot_confusion_metrics(test, trainer, confusion_metrics_path, get_confusion_metrics)
 
     print("plotting test images")
     # Plot test images with predicted and original label on it
-    plot_predictions_test_set(test, trainer, test_plot_path, network_type, get_testset_pred)
+    plot_predictions_test_set(test, trainer, test_plot_path, get_testset_pred)
 
     # F1 score
     print("computing f1 score..")

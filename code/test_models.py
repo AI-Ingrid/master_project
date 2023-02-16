@@ -24,6 +24,7 @@ def loss_and_accuracy(train, validation, test, neural_net):
 
 
 def test_model(trainer, train_dataloader, test_dataloader, neural_net):
+    print("TESTING")
     if load_best_model:
         # Load neural net model
         trainer.load_best_model()

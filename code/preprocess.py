@@ -1,3 +1,8 @@
+import copy
+import warnings
+# TODO: Handle this
+warnings.filterwarnings("ignore")
+
 import os
 import math
 import imageio
@@ -7,9 +12,11 @@ import numpy as np
 import matplotlib
 import pathlib
 import matplotlib.pyplot as plt
+
 from tqdm import tqdm
 from scipy.spatial.distance import cdist
 from utils.data_utils import get_trim_start_end_frames, VideoTrimmingLimits, find_next_folder_nbr, natural_keys
+
 matplotlib.use('Agg')   # Use 'Agg' backend to avoid memory overload
 
 
@@ -265,7 +272,7 @@ def add_labels(path_to_timestamp_file, path_to_position_file, frames, dataframe,
     return dataframe
 
 
-def crop_scale_and_label_the_frames(path_to_patients, frame_dimension, raw_dataset_path, label_file_path, fps):
+def crop_and_label_the_frames(path_to_patients, raw_dataset_path, label_file_path, fps):
     """ Crops the frames such that only the frame from the virtual video of the airway
     is stored and passed into the network. Overwrites the frames by storing the cropped
     frame as the frame """
@@ -280,8 +287,8 @@ def crop_scale_and_label_the_frames(path_to_patients, frame_dimension, raw_datas
     patient_list = os.listdir(path_to_patients)
     patient_list = list(filter(lambda x: not x.startswith("."), patient_list))
 
-    # Go through all patients and theirs sequences to get every frame
-    for patient in patient_list:
+    # Go through all patients and their sequences to get every frame
+    for patient in tqdm(patient_list):
         print("Going through patient: ", patient)
         path_to_sequences = path_to_patients + "/" + patient
 
@@ -289,9 +296,11 @@ def crop_scale_and_label_the_frames(path_to_patients, frame_dimension, raw_datas
         sequences_list = os.listdir(path_to_sequences)
         sequences_list = list(filter(lambda x: not x.startswith("."), sequences_list))
 
+        # Count the number of videos
         video_count = 1
+
         # Go through all video sequences for current patient
-        for sequence in tqdm(sequences_list):
+        for sequence in sequences_list:
             path_to_frames = path_to_sequences + "/" + sequence
 
             # Create a dataframe for each video sequence
@@ -301,6 +310,7 @@ def crop_scale_and_label_the_frames(path_to_patients, frame_dimension, raw_datas
             file_list = os.listdir(path_to_frames)
             file_list = list(filter(lambda x: not x.startswith("."), file_list))
 
+            # Save labeling information for current file
             path_to_timestamp_file = ""
             path_to_position_file = ""
             frame_list = []
@@ -315,35 +325,70 @@ def crop_scale_and_label_the_frames(path_to_patients, frame_dimension, raw_datas
                     # Crop the frame
                     frame_cropped = frame[y_start:y_end, x_start:x_end]
 
-                    # Scale the frame down to frame_dimension set in parameters.py f.ex: (256, 256)
-                    frame_scaled = cv2.resize(frame_cropped, frame_dimension, interpolation=cv2.INTER_AREA)
-
                     # Save the new frame
-                    cv2.imwrite(path_to_frame, frame_scaled)
+                    cv2.imwrite(path_to_frame, frame_cropped)
                     frame_list.append(path_to_frame)
 
-
-                # File is the timestamp.txt file
+                # Check for file being the timestamp.txt file
                 elif file.endswith("timestamps.txt"):
                     path_to_timestamp_file = path_to_frames + "/" + file
 
-                # File is position.txt file
+                # Check for file being the position.txt file
                 elif file.endswith("positions.txt"):
                     path_to_position_file = path_to_frames + "/" + file
 
             # Add labels to the frames in current sequence
-            dataframe = add_labels(path_to_timestamp_file, path_to_position_file, frame_list, dataframe, video_count, label_file_path, fps)
+            dataframe = add_labels(path_to_timestamp_file, path_to_position_file, frame_list, dataframe, video_count,
+                                   label_file_path, fps)
             video_count += 1
 
             # Convert dataframe into CSV file in order to store the video sequence as a file
-            #print(f"Converting {sequence} from dataframe to csv")
             path = raw_dataset_path + f"{sequence}.csv"
             dataframe.to_csv(path, index=False)
 
 
-def preprocess(convert_videos, crop_scale_label_videos, videos_path, frames_path, fps, frame_dimension, raw_dataset_path, label_file_path):
-    if convert_videos:
-        convert_video_to_frames(videos_path, frames_path, fps)
-    if crop_scale_label_videos:
-        crop_scale_and_label_the_frames(path_to_patients=frames_path, frame_dimension=frame_dimension,
-                                    raw_dataset_path=raw_dataset_path, label_file_path=label_file_path, fps=fps)
+def perform_mapping(label_map_dict, label):
+    # Label is >= num_generations we are looking at
+    if label in label_map_dict.keys():
+        new_label = label_map_dict[label][0]
+    # Label is > num_generations we are looking at
+    else:
+        new_label = 0
+    return new_label
+
+
+def relabel_frames(labeled_videos_path, label_map_dict, relabeled_videos_path):
+    """
+    Method that relabels the dataset based on a mapping created after the numbers of generations entered.
+    Method also deleted frames that has a larger generation than the one entered
+    """
+    # Go through all csv files and avoid .DS_Store
+    for video in list(os.listdir(labeled_videos_path)):
+        if not video.startswith("."):
+            video_df = pd.read_csv(labeled_videos_path + video)
+            # Create a new dataframe to store the relabeled information
+            temp_df = copy.deepcopy(video_df)
+
+            # Change label by using the given mapping system
+            temp_df["Airway_Segment"] = video_df["Airway_Segment"].apply(lambda label: perform_mapping(label_map_dict=label_map_dict, label=label))
+
+            # Remove frames not belonging to the generation chosen (labeled with 0)
+            new_video_df = copy.deepcopy(temp_df[(temp_df.Airway_Segment != 0)])
+            new_video_df.to_csv(relabeled_videos_path + video, index=False)
+
+
+def preprocess(convert_videos_to_frames, label_the_frames, videos_path, frames_path, fps, raw_dataset_path,
+               label_file_path, label_map_dict, relabel_the_frames, relabeled_csv_videos_path):
+    print("-- PREPROCESS --")
+    # Create frames (png) from videos (mp4)
+    if convert_videos_to_frames:
+        convert_video_to_frames(input_data_path=videos_path, output_data_path=frames_path, fps=fps)
+
+    # Label the frames with the original labels and crop them
+    if label_the_frames:
+        crop_and_label_the_frames(path_to_patients=frames_path, raw_dataset_path=raw_dataset_path,
+                                  label_file_path=label_file_path, fps=fps)
+
+    # Relabel each frame to label between 0-26 and remove all frames with label 0
+    if relabel_the_frames:
+        relabel_frames(labeled_videos_path=raw_dataset_path, label_map_dict=label_map_dict, relabeled_videos_path=relabeled_csv_videos_path)

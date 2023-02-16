@@ -342,6 +342,9 @@ def create_plots(trainer: Trainer, path: str, name: str):
 def train_model(batch_size, learning_rate, early_stop_count, epochs, num_validations,
                 neural_net, train_dataloader, validation_dataloader, fps, train_plot_path,
                 train_plot_name, num_airway_segment_classes, num_direction_classes):
+    print("TRAINING")
+    # faster inference and training if set to True
+    #torch.backends.cudnn.benchmark = True
     trainer = Trainer(
         batch_size,
         learning_rate,

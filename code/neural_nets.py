@@ -87,5 +87,6 @@ class NavigationNet(nn.Module):
 
 
 def create_neural_net(hidden_nodes, num_airway_segment_classes, num_direction_classes):
+    print("NEURAL NET")
     neural_net = NavigationNet(hidden_nodes, num_airway_segment_classes, num_direction_classes)
     return neural_net

@@ -26,18 +26,21 @@ def main():
         num_airway_segment_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes,
         frame_dimension=frame_dimension
     )
-    """
+
     # Create neural network
-    neural_net = create_neural_net(hidden_nodes, num_airway_segment_classes, num_direction_classes)
+    neural_net = create_neural_net(hidden_nodes=hidden_nodes, num_frames_in_stack=num_frames_in_stack,
+                                   num_airway_segment_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes)
 
     # Train model
-    trainer = train_model(batch_size, learning_rate, early_stop_count, epochs, num_validations, neural_net,
-                          train_dataloader, validation_dataloader, fps, train_plot_path, train_plot_name,
-                          num_airway_segment_classes, num_direction_classes)
+    trainer = train_model(batch_size=batch_size, learning_rate=learning_rate, early_stop_count=early_stop_count, epochs=epochs,
+                          num_validations=num_validations, neural_net=neural_net, train_dataloader=train_dataloader,
+                          validation_dataloader=validation_dataloader, fps=fps, train_plot_path=train_plot_path,
+                          train_plot_name=train_plot_name, num_airway_segment_classes=num_airway_segment_classes,
+                          num_direction_classes=num_direction_classes, num_frames_in_stack=num_frames_in_stack)
 
     # Test model
     test_model(trainer, train_dataloader, test_dataloader, neural_net)
-    """
+
 
 if __name__ == "__main__":
     main()

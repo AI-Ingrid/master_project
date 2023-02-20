@@ -59,13 +59,13 @@ class RandomGeneratorDataset(Dataset):
         new_frames = np.array(frames)
 
         # Convert to Tensor
-        frames = torch.tensor(frames)  # [num_frames=30, width=384, height=384, channels=3]
+        frames = torch.tensor(new_frames)  # [num_frames=30, width=384, height=384, channels=3]
 
         # One hot encode labels
         airway_labels = torch.nn.functional.one_hot(torch.tensor(airway_labels.values), num_classes=self.num_airway_segment_classes)  # [num_frames=30, num_classes = 27]
         direction_labels = torch.nn.functional.one_hot(torch.tensor(direction_labels.values), num_classes=self.num_direction_classes)  # [num_frames=30, num_classes=2]
 
-        return frames, [airway_labels, direction_labels]
+        return frames, [airway_labels.float(), direction_labels.float()]
 
 
 def move_location(videos, new_location, raw_dataset_path):
@@ -150,7 +150,7 @@ def create_datasets_and_dataloaders(validation_split, test_split, raw_dataset_pa
                                           num_airway_segment_classes=num_airway_segment_classes,
                                           num_direction_classes=num_direction_classes, transform=transform)
 
-    test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=shuffle_dataset, num_workers=1, pin_memory=True)
+    test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=shuffle_dataset, num_workers=4, pin_memory=True)
 
     # Create Validation DataSet and DataLoader
     validation_dataset = RandomGeneratorDataset(file_list=validation_csv_files, num_stacks=num_stacks,
@@ -158,10 +158,10 @@ def create_datasets_and_dataloaders(validation_split, test_split, raw_dataset_pa
                                           num_airway_segment_classes=num_airway_segment_classes,
                                           num_direction_classes=num_direction_classes, transform=transform)
 
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=batch_size, shuffle=shuffle_dataset, num_workers=1, pin_memory=True)
-
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=batch_size, shuffle=shuffle_dataset, num_workers=4, pin_memory=True)
+    """
     for x, y in train_dataloader:
 
         print(x.shape, y[0].shape, y[1].shape)
-
+    """
     return train_dataloader, test_dataloader, validation_dataloader

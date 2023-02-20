@@ -42,7 +42,7 @@ frame_dimension = (384, 384)  # Dimension of the scaled frames that will be sent
 dataset_type = 'synthetic'  # {'synthetic' 'human'}
 test_split = 0.1  # Fraction that split data into test data
 validation_split = 0.2  # Fraction that split data into validation data
-num_frames_in_stack = 30  # Num frames in a stack that gets sent into RNN
+num_frames_in_stack = 10  # Num frames in a stack that gets sent into RNN
 slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack TODO: Vurdere en variabel her som feks random mellom 3- 7
 num_stacks = 1000
 split_the_data = False  # Split videos into train, test or validation
@@ -54,11 +54,11 @@ num_direction_classes = 2
 hidden_nodes = 128
 
 # Training specifications
-epochs = 20
-batch_size = 32
+epochs = 1
+batch_size = 16
 learning_rate = 7e-5
 early_stop_count = 5
-num_validations = 4  # Num times for validation our model during training
+num_validations = 16  # Num times for validation our model during training
 alpha = 0.25
 gamma = 2.0
 load_best_model = True

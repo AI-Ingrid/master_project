@@ -26,13 +26,14 @@ def compute_loss_and_accuracy(
     Returns:
         [average_loss, accuracy]: both scalar.
     """
-    average_loss = 0
-    f1_airway_segment = 0
+    loss_airway = 0
+    loss_direction = 0
+    f1_airway = 0
     f1_direction = 0
-    num_samples = 0
     batch_size = 0
 
     # Handle unbalanced dataset with the use of F1 Macro Score
+    #TODO: feil her: Usikker på om F1Score håndterer 3 dim input
     f1_airway_segment_metric = tm.F1Score(average='macro', task='multilabel', num_classes=num_airway_segment_classes)
     f1_direction_metric = tm.F1Score(average='macro', task='multilabel', num_classes=num_direction_classes)
 
@@ -40,38 +41,64 @@ def compute_loss_and_accuracy(
         for (X_batch, Y_batch) in tqdm(dataloader):
             # Transfer images/labels to GPU VRAM, if possible
             X_batch = to_cuda(X_batch)
-            Y_batch = to_cuda(Y_batch)
 
-            # Forward pass the images through our model
-            output_probs = model(X_batch)
+            # Forward pass the images through the model
+            predictions = model(X_batch)
 
-            predictions = torch.softmax(output_probs, dim=1)
+            # Get the prediction probabilities
+            predictions_airway = torch.softmax(predictions[0], dim=1)     # [16, 10, 27]
+            predictions_direction = torch.softmax(predictions[1], dim=1)  # [16, 10, 2]
 
-            decoded_airway_segment_targets = decode_one_hot_encoded_labels(Y_batch[0])
-            decoded_direction_targets = decode_one_hot_encoded_labels(Y_batch[1])
+            # TODO: HER ER FEILEN decode funksjon er laga for 2D til 1D ikke for 3D til 2D
+            # Decode the Y_batch for airway and direction separately and convert to Tensors
+            #airway_decoded = decode_one_hot_encoded_labels(Y_batch[0])     # []
+            #direction_decoded = decode_one_hot_encoded_labels(Y_batch[1])  # []
 
-            airway_segment_targets = torch.tensor(np.array(decoded_airway_segment_targets))
-            direction_targets = torch.tensor(np.array(decoded_direction_targets))
+            # Get the ground truths in correct format
+            ground_truth_airway = torch.tensor(np.array(Y_batch[0], dtype='int64'))
+            ground_truth_direction = torch.tensor(np.array(Y_batch[1], dtype='int64'))
 
-            num_samples += Y_batch[0].shape[0]
+            print("SOFTMAX")
+            print("airway shape: ", predictions_airway.shape)
+            print("direction shape: ", predictions_direction.shape)
+
+            print("TENSORS")
+            print("airway shape: ", ground_truth_airway.shape)
+            print("direction shape: ", ground_truth_direction.shape)
 
             # Compute F1 Score
-            f1_airway_segment += f1_airway_segment_metric(predictions.cpu(), airway_segment_targets.cpu())
-            f1_direction += f1_direction_metric(predictions.cpu(), direction_targets.cpu())
+            f1_airway += f1_airway_segment_metric(predictions_airway.cpu(), ground_truth_airway.cpu())
+            f1_direction += f1_direction_metric(predictions_direction.cpu(), ground_truth_direction.cpu())
 
             # Compute Loss
-            average_loss += loss_criterion(output_probs, Y_batch)
+            loss_airway += loss_criterion(predictions_airway, ground_truth_airway)
+            loss_direction += loss_criterion(predictions_direction, ground_truth_direction)
+
             batch_size += 1
 
-    average_loss = average_loss / batch_size
-    f1_airway_segment = f1_airway_segment / batch_size
+    loss_airway = loss_airway / batch_size
+    loss_direction = loss_direction / batch_size
+    f1_airway = f1_airway / batch_size
     f1_direction = f1_direction / batch_size
 
-    print(f'F1 Airway Segment Score: {f1_airway_segment}')
+    print(f'F1 Airway Segment Score: {f1_airway}')
     print(f'F1 Direction Score: {f1_direction}')
-    print(f'Loss: {average_loss}')
+    print(f'Loss Airway Segment: {loss_airway}')
+    print(f'Loss Direction: {loss_direction}')
 
-    return average_loss, f1_airway_segment, f1_direction
+    return loss_airway, loss_direction, f1_airway, f1_direction
+
+
+def compute_combined_loss(airway_loss, direction_loss):
+    # TODO: vekting på lossa ln(num_classes)
+    # TODO: L1 * w1 + L2* w2 (vekt-forholdstall)
+    return airway_loss + direction_loss
+
+
+def compute_combined_accuracy(airway_acc, direction_acc):
+    # TODO: vekting på lossa ln(num_classes)
+    # TODO: L1 * w1 + L2* w2 (vekt-forholdstall)
+    return airway_acc + direction_acc
 
 
 class Trainer:
@@ -87,7 +114,8 @@ class Trainer:
                  validation_dataloader: typing.List[torch.utils.data.DataLoader],
                  fps: int,
                  num_airway_segment_classes: int,
-                 num_direction_classes: int):
+                 num_direction_classes: int,
+                 num_frames_in_stack: int):
         """
             Initialize our trainer class.
         """
@@ -108,7 +136,7 @@ class Trainer:
         self.fps = fps
         self.num_airway_segment_classes = num_airway_segment_classes
         self.num_direction_classes = num_direction_classes
-
+        self.num_frames_in_stack = num_frames_in_stack
         # Set loss criterion
         self.loss_criterion = torch.nn.CrossEntropyLoss()
 
@@ -149,27 +177,41 @@ class Trainer:
             Train, validation and test.
         """
         self.model.eval()
+        # Compute train loss and accuracy
+        train_airway_loss, train_direction_loss, train_airway_acc, train_direction_acc = compute_loss_and_accuracy(
+                                                                                        self.train_dataloader, self.model,
+                                                                                        self.loss_criterion, self.num_airway_segment_classes,
+                                                                                        self.num_direction_classes)
+        # Store training accuracy
+        self.train_history["airway_accuracy"][self.global_step] = train_airway_acc
+        self.train_history["direction_accuracy"][self.global_step] = train_direction_acc
+        self.train_history["combined_accuracy"][self.global_step] = compute_combined_accuracy(train_airway_acc, train_direction_acc)
 
-        train_airway_segment_loss, train_direction_loss, train_acc = compute_loss_and_accuracy(self.train_dataloader, self.model, self.loss_criterion, self.num_airway_segment_classes, self.num_direction_classes)
-        self.train_history["airway_segment_loss"][self.global_step] = train_airway_segment_loss
-        self.train_history["direction_loss"][self.global_step] = train_direction_loss
-        self.train_history["accuracy"][self.global_step] = train_acc
-
-        val_airway_segment_loss, val_direction_loss, val_acc = compute_loss_and_accuracy(self.validation_dataloader, self.model, self.loss_criterion, self.num_airway_segment_classes, self.num_direction_classes)
-        self.validation_history["airway_segment_loss"][self.global_step] = val_airway_segment_loss
+        # Compute validation loss and accuracy
+        val_airway_loss, val_direction_loss, val_airway_acc, val_direction_acc = compute_loss_and_accuracy(
+                                                                                self.validation_dataloader,
+                                                                                self.model, self.loss_criterion,
+                                                                                self.num_airway_segment_classes,
+                                                                                self.num_direction_classes)
+        # Store validation loss and accuracy
+        self.validation_history["airway_segment_loss"][self.global_step] = val_airway_loss
         self.validation_history["direction_loss"][self.global_step] = val_direction_loss
-        self.validation_history["combined_loss"][self.global_step] = val_airway_segment_loss + val_direction_loss
-        self.validation_history["accuracy"][self.global_step] = val_acc
+        self.validation_history["combined_loss"][self.global_step] = compute_combined_loss(val_airway_loss, val_direction_loss)
+        self.validation_history["airway_accuracy"][self.global_step] = val_airway_acc
+        self.validation_history["direction_accuracy"][self.global_step] = val_direction_acc
+        self.validation_history["combined_accuracy"][self.global_step] = compute_combined_accuracy(val_airway_acc, val_direction_acc)
 
         used_time = time.time() - self.start_time
         print(
             f"Epoch: {self.epoch:>1}",
             f"Batches per seconds: {self.global_step / used_time:.2f}",
             f"Global step: {self.global_step:>6}",
-            f"Validation Airway Segment Loss: {val_airway_segment_loss:.2f}",
+            f"Validation Airway Segment Loss: {val_airway_loss:.2f}",
             f"Validation Direction Loss: {val_direction_loss:.2f}",
-            f"Validation Accuracy: {val_acc:.3f}",
-            f"Train Accuracy: {train_acc:.3f}",
+            f"Validation Airway Accuracy: {val_airway_acc:.3f}",
+            f"Validation Direction Accuracy: {val_direction_acc:.3f}",
+            f"Train Airway Accuracy: {train_airway_acc:.3f}",
+            f"Train Direction Accuracy: {train_direction_acc:.3f}",
             sep=", ")
         self.model.train()
 
@@ -201,19 +243,27 @@ class Trainer:
             loss value (float) on batch
         """
         X_batch = to_cuda(X_batch)
-        Y_batch = to_cuda(Y_batch)
+        Y_batch_airway = to_cuda(Y_batch[0])
+        Y_batch_direction = to_cuda(Y_batch[1])
 
         # Perform the forward pass
         predictions = self.model(X_batch)
 
-        # Compute the cross entropy loss for the batch
-        airway_segment_loss = self.loss_criterion(predictions, Y_batch[0])
-        direction_loss = self.loss_criterion(predictions, Y_batch[1])
+        # Reshape 3D to 2D for the loss function
+        shape_airway = (self.batch_size * self.num_frames_in_stack, self.num_airway_segment_classes)
+        shape_direction = (self.batch_size * self.num_frames_in_stack, self.num_direction_classes)
+
+        Y_batch_airway = Y_batch_airway.reshape(shape_airway)
+        Y_batch_direction = Y_batch_direction.reshape(shape_direction)
+        predictions_airway = predictions[0].reshape(shape_airway)
+        predictions_direction = predictions[1].reshape(shape_direction)
+
+        # Calculate loss for airway segment and direction separately
+        airway_loss = self.loss_criterion(predictions_airway, Y_batch_airway)
+        direction_loss = self.loss_criterion(predictions_direction, Y_batch_direction)
 
         # Compute combined loss
-        # TODO: vekting på lossa ln(num_classes)
-        # TODO: L1 * w1 + L2* w2 (vekt-forholdstall)
-        combined_loss = airway_segment_loss + direction_loss
+        combined_loss = compute_combined_loss(airway_loss, direction_loss)
 
         # Backpropagation
         combined_loss.backward()
@@ -224,7 +274,7 @@ class Trainer:
         # Reset all computed gradients to 0
         self.optimizer.zero_grad()
 
-        return airway_segment_loss.detach().cpu().item(), direction_loss.detach().cpu().item(), combined_loss.detach().cpu().item()
+        return airway_loss.detach().cpu().item(), direction_loss.detach().cpu().item(), combined_loss.detach().cpu().item()
 
     def train(self):
         """
@@ -236,11 +286,13 @@ class Trainer:
 
         for epoch in range(self.epochs):
             self.epoch = epoch
-            print("Epoch: ", epoch)
+            #print("Epoch: ", epoch)
 
             # Perform a full pass through all the training samples
             for X_batch, Y_batch in tqdm(self.train_dataloader):
                 airway_segment_loss, direction_loss, combined_loss = self.train_step(X_batch, Y_batch)
+
+                # Store training history
                 self.train_history["airway_segment_loss"][self.global_step] = airway_segment_loss
                 self.train_history["direction_loss"][self.global_step] = direction_loss
                 self.train_history["combined_loss"][self.global_step] = combined_loss
@@ -341,10 +393,9 @@ def create_plots(trainer: Trainer, path: str, name: str):
 
 def train_model(batch_size, learning_rate, early_stop_count, epochs, num_validations,
                 neural_net, train_dataloader, validation_dataloader, fps, train_plot_path,
-                train_plot_name, num_airway_segment_classes, num_direction_classes):
-    print("TRAINING")
-    # faster inference and training if set to True
-    #torch.backends.cudnn.benchmark = True
+                train_plot_name, num_airway_segment_classes, num_direction_classes, num_frames_in_stack):
+    print("-- TRAINING --")
+
     trainer = Trainer(
         batch_size,
         learning_rate,
@@ -356,7 +407,8 @@ def train_model(batch_size, learning_rate, early_stop_count, epochs, num_validat
         validation_dataloader,
         fps,
         num_airway_segment_classes,
-        num_direction_classes
+        num_direction_classes,
+        num_frames_in_stack,
     )
     trainer.train()
 

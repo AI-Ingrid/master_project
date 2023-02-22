@@ -17,7 +17,7 @@ def main():
                label_map_dict=label_map_dict, relabel_the_frames=relabel_the_frames, relabeled_csv_videos_path=relabeled_csv_videos_path)
 
     # Create datasets and dataloaders
-    train_dataloader, test_dataloader, validation_dataloader = create_datasets_and_dataloaders(
+    train_dataloader, validation_dataloader, test_dataset = create_datasets_and_dataloaders(
         validation_split=validation_split, test_split=test_split,
         raw_dataset_path=relabeled_csv_videos_path, dataset_path=dataset_path,
         num_stacks=num_stacks, num_frames_in_stack=num_frames_in_stack,
@@ -32,14 +32,14 @@ def main():
                                    num_airway_segment_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes)
 
     # Train model
-    trainer = train_model(batch_size=batch_size, learning_rate=learning_rate, early_stop_count=early_stop_count, epochs=epochs,
+    trainer = train_model(perform_training=perform_training, batch_size=batch_size, learning_rate=learning_rate, early_stop_count=early_stop_count, epochs=epochs,
                           num_validations=num_validations, neural_net=neural_net, train_dataloader=train_dataloader,
                           validation_dataloader=validation_dataloader, fps=fps, train_plot_path=train_plot_path,
                           train_plot_name=train_plot_name, num_airway_segment_classes=num_airway_segment_classes,
                           num_direction_classes=num_direction_classes, num_frames_in_stack=num_frames_in_stack)
 
     # Test model
-    #test_model(trainer, train_dataloader, test_dataloader, neural_net)
+    test_model(trainer=trainer, test_dataset=test_dataset, test_slide_ratio=test_slide_ratio_in_stack, num_frames=num_frames_in_stack)
 
 
 if __name__ == "__main__":

@@ -54,7 +54,8 @@ num_direction_classes = 2
 hidden_nodes = 128
 
 # Training specifications
-epochs = 300
+perform_training = False
+epochs = 1
 batch_size = 4
 learning_rate = 7e-5
 early_stop_count = 20
@@ -62,6 +63,7 @@ num_validations = 16  # Num times for validation our model during training
 alpha = 0.25
 gamma = 2.0
 load_best_model = True
+test_slide_ratio_in_stack = 5
 
 # Testing trained model
 get_data_dist = True

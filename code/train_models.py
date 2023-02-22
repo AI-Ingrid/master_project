@@ -10,7 +10,7 @@ from tqdm import tqdm
 from utils.neural_nets_utils import to_cuda,  decode_one_hot_encoded_labels, save_checkpoint, load_best_checkpoint
 
 
-def compute_loss_and_accuracy(
+def compute_f1_and_loss(
         dataloader: torch.utils.data.DataLoader,
         model: torch.nn.Module,
         loss_criterion: torch.nn.modules.loss._Loss,
@@ -57,21 +57,9 @@ def compute_loss_and_accuracy(
             # Decode the one-hot-encoding for targets
             targets_airway_decoded = torch.argmax(Y_batch_airway, axis=-1).flatten()
             targets_direction_decoded = torch.argmax(Y_batch_direction, axis=-1).flatten()
-            """
-            print("Target airway shape: ", targets_airway_decoded.shape)
-            print("Prediction airway shape: ", predictions_airway_decoded.shape)
-            print("Target airway: ", targets_airway_decoded)
-            print("Prediction airway: ", predictions_airway_decoded)
-            """
+
             # Compute F1 Score
             f1_airway += f1_airway_segment_metric(predictions_airway_decoded.cpu(), targets_airway_decoded.cpu())
-            """ 
-            print("F1 AIRWAY: ", f1_airway)
-            print("Target direction shape: ", targets_direction_decoded.shape)
-            print("Prediction direction shape: ", predictions_direction_decoded.shape)
-            print("Target direction: ", targets_direction_decoded)
-            print("Prediction direction: ", predictions_direction_decoded)
-            """
             f1_direction += f1_direction_metric(predictions_direction_decoded.cpu(), targets_direction_decoded.cpu())
 
             # Reshape 3D to 2D for the loss function
@@ -168,19 +156,19 @@ class Trainer:
             airway_segment_loss=collections.OrderedDict(),
             direction_loss=collections.OrderedDict(),
             combined_loss=collections.OrderedDict(),
-            airway_accuracy=collections.OrderedDict(),
-            direction_accuracy=collections.OrderedDict(),
-            combined_accuracy=collections.OrderedDict(),
+            airway_f1=collections.OrderedDict(),
+            direction_f1=collections.OrderedDict(),
+            combined_f1=collections.OrderedDict(),
         )
         self.validation_history = dict(
             airway_segment_loss=collections.OrderedDict(),
             direction_loss=collections.OrderedDict(),
             combined_loss=collections.OrderedDict(),
-            airway_accuracy=collections.OrderedDict(),
-            direction_accuracy=collections.OrderedDict(),
-            combined_accuracy=collections.OrderedDict(),
+            airway_f1=collections.OrderedDict(),
+            direction_f1=collections.OrderedDict(),
+            combined_f1=collections.OrderedDict(),
         )
-        self.checkpoint_dir = pathlib.Path(f"checkpoints_{self.fps}")
+        self.checkpoint_dir = pathlib.Path(f"checkpoints_baseline_{self.fps}")
 
     def validation_step(self):
         """
@@ -189,17 +177,17 @@ class Trainer:
         """
         self.model.eval()
         # Compute train loss and accuracy
-        train_airway_loss, train_direction_loss, train_airway_acc, train_direction_acc = compute_loss_and_accuracy(
+        train_airway_loss, train_direction_loss, train_airway_f1, train_direction_f1 = compute_f1_and_loss(
                                                                                         self.train_dataloader, self.model,
                                                                                         self.loss_criterion, self.num_airway_segment_classes,
                                                                                         self.num_direction_classes)
         # Store training accuracy
-        self.train_history["airway_accuracy"][self.global_step] = train_airway_acc
-        self.train_history["direction_accuracy"][self.global_step] = train_direction_acc
-        self.train_history["combined_accuracy"][self.global_step] = compute_combined_accuracy(train_airway_acc, train_direction_acc)
+        self.train_history["airway_f1"][self.global_step] = train_airway_f1
+        self.train_history["direction_f1"][self.global_step] = train_direction_f1
+        self.train_history["combined_f1"][self.global_step] = compute_combined_accuracy(train_airway_f1, train_direction_f1)
 
         # Compute validation loss and accuracy
-        val_airway_loss, val_direction_loss, val_airway_acc, val_direction_acc = compute_loss_and_accuracy(
+        val_airway_loss, val_direction_loss, val_airway_f1, val_direction_f1 = compute_f1_and_loss(
                                                                                 self.validation_dataloader,
                                                                                 self.model, self.loss_criterion,
                                                                                 self.num_airway_segment_classes,
@@ -210,23 +198,21 @@ class Trainer:
         self.validation_history["combined_loss"][self.global_step] = compute_combined_loss(val_airway_loss, val_direction_loss)
 
         # Store validation accuracy
-        self.validation_history["airway_accuracy"][self.global_step] = val_airway_acc
-        self.validation_history["direction_accuracy"][self.global_step] = val_direction_acc
-        self.validation_history["combined_accuracy"][self.global_step] = compute_combined_accuracy(val_airway_acc, val_direction_acc)
+        self.validation_history["airway_f1"][self.global_step] = val_airway_f1
+        self.validation_history["direction_f1"][self.global_step] = val_direction_f1
+        self.validation_history["combined_f1"][self.global_step] = compute_combined_accuracy(val_airway_f1, val_direction_f1)
 
         # TODO: legge inn training loss
         used_time = time.time() - self.start_time
-        print(
-            f"Epoch: {self.epoch:>1}",
-            f"Batches per seconds: {self.global_step / used_time:.2f}",
-            f"Global step: {self.global_step:>6}",
-            f"Validation Airway Segment Loss: {val_airway_loss:.2f}",
-            f"Validation Direction Loss: {val_direction_loss:.2f}",
-            f"Validation Airway Accuracy: {val_airway_acc:.3f}",
-            f"Validation Direction Accuracy: {val_direction_acc:.3f}",
-            f"Train Airway Accuracy: {train_airway_acc:.3f}",
-            f"Train Direction Accuracy: {train_direction_acc:.3f}",
-            sep=", ")
+        print(f"Epoch: {self.epoch:>1}")
+        print(f"Batches per seconds: {self.global_step / used_time:.2f}")
+        print(f"Global step: {self.global_step:>6}")
+        print(f"Validation Airway Segment Loss: {val_airway_loss:.2f}")
+        print(f"Validation Direction Loss: {val_direction_loss:.2f}")
+        print(f"Validation Airway F1: {val_airway_f1:.3f}")
+        print(f"Validation Direction F1: {val_direction_f1:.3f}")
+        print(f"Train Airway F1 {train_airway_f1:.3f}")
+        print(f"Train Direction F1: {train_direction_f1:.3f}")
         self.model.train()
 
     def should_early_stop(self):
@@ -313,7 +299,6 @@ class Trainer:
                 self.global_step += 1
 
             # Compute loss/accuracy for validation set
-            #if should_validate_model():
             self.validation_step()
             self.save_model()
             if self.should_early_stop():
@@ -329,19 +314,15 @@ class Trainer:
             validation_losses = list(val_loss.values())
             return validation_losses[-1] == min(validation_losses)
 
-        state_dict = self.model.state_dict()
-        filepath = self.checkpoint_dir.joinpath(f"{self.global_step}.pth")
-        #save_checkpoint(state_dict, filepath, is_best_model())
         if is_best_model():
-            torch.save(self.model, filepath)
+            directory_path = pathlib.Path(self.checkpoint_dir)
+            directory_path.mkdir(exist_ok=True)
+            model_path = self.checkpoint_dir.joinpath("best_model.pth")
+            torch.save(self.model, model_path)
 
-    def load_best_model(self):
-        state_dict = load_best_checkpoint(self.checkpoint_dir)
-        if state_dict is None:
-            print(
-                f"Could not load best checkpoint. Did not find under: {self.checkpoint_dir}")
-            return
-        self.model.load_state_dict(state_dict)
+    def load_model(self):
+        model_path = self.checkpoint_dir.joinpath("best_model.pth")
+        self.model = torch.load(model_path)
 
 
 def plot_loss(loss_dict: dict, label: str = None, color: str = None, npoints_to_average=1, plot_variance=True):
@@ -402,26 +383,25 @@ def create_plots(trainer: Trainer, path: str, name: str):
     plt.subplot(1, 2, 2)
     plt.title("Accuracy")
     # Airway Segment Accuracy
-    plot_loss(trainer.train_history["airway_accuracy"], label="Training Airway Accuracy", color='e06377')
-    plot_loss(trainer.validation_history["airway_accuracy"], label="Validation Airway Accuracy", color='5b9aa0')
+    plot_loss(trainer.train_history["airway_f1"], label="Training Airway F1", color='e06377')
+    plot_loss(trainer.validation_history["airway_f1"], label="Validation Airway F1", color='5b9aa0')
 
     # Direction Accuracy
-    plot_loss(trainer.train_history["direction_accuracy"], label="Training Direction Accuracy", color='e06377')
-    plot_loss(trainer.validation_history["direction_accuracy"], label="Validation Direction Accuracy", color='5b9aa0')
+    plot_loss(trainer.train_history["direction_f1"], label="Training Direction F1", color='e06377')
+    plot_loss(trainer.validation_history["direction_f1"], label="Validation Direction F1", color='5b9aa0')
 
     # Combined Accuracy
-    plot_loss(trainer.train_history["combined_accuracy"], label="Combined Training Accuracy", color='e06377')
-    plot_loss(trainer.validation_history["combined_accuracy"], label="Combined Validation Accuracy", color='5b9aa0')
+    plot_loss(trainer.train_history["combined_f1"], label="Combined Training F1", color='e06377')
+    plot_loss(trainer.validation_history["combined_f1"], label="Combined Validation F1", color='5b9aa0')
 
     plt.legend()
     plt.savefig(plot_path.joinpath(f"{name}.png"))
     plt.show()
 
 
-def train_model(batch_size, learning_rate, early_stop_count, epochs, num_validations,
+def train_model(perform_training, batch_size, learning_rate, early_stop_count, epochs, num_validations,
                 neural_net, train_dataloader, validation_dataloader, fps, train_plot_path,
                 train_plot_name, num_airway_segment_classes, num_direction_classes, num_frames_in_stack):
-    print("-- TRAINING --")
     trainer = Trainer(
         batch_size,
         learning_rate,
@@ -436,9 +416,10 @@ def train_model(batch_size, learning_rate, early_stop_count, epochs, num_validat
         num_direction_classes,
         num_frames_in_stack,
     )
-    trainer.train()
-
-    # Visualize training
-    create_plots(trainer, train_plot_path, train_plot_name)
+    if perform_training:
+        print("-- TRAINING --")
+        trainer.train()
+        # Visualize training
+        create_plots(trainer, train_plot_path, train_plot_name)
 
     return trainer

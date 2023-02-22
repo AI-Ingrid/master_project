@@ -33,46 +33,60 @@ def compute_loss_and_accuracy(
     batch_size = 0
 
     # Handle unbalanced dataset with the use of F1 Macro Score
-    #TODO: feil her: Usikker på om F1Score håndterer 3 dim input
     f1_airway_segment_metric = tm.F1Score(average='macro', task='multilabel', num_classes=num_airway_segment_classes)
     f1_direction_metric = tm.F1Score(average='macro', task='multilabel', num_classes=num_direction_classes)
 
     with torch.no_grad():
-        for (X_batch, Y_batch) in tqdm(dataloader):
+        for (X_batch, (Y_batch_airway, Y_batch_direction)) in tqdm(dataloader, "Validation", position=0, leave=True):
             # Transfer images/labels to GPU VRAM, if possible
             X_batch = to_cuda(X_batch)
 
             # Forward pass the images through the model
             predictions = model(X_batch)
+            predictions_airway = predictions[0]
+            predictions_direction = predictions[1]
 
             # Get the prediction probabilities
-            predictions_airway = torch.softmax(predictions[0], dim=1)     # [16, 10, 27]
-            predictions_direction = torch.softmax(predictions[1], dim=1)  # [16, 10, 2]
+            predictions_airway_softmax = torch.softmax(predictions_airway, dim=-1)  # [16, 10, 27]
+            predictions_direction_softmax = torch.softmax(predictions_direction, dim=-1)  # [16, 10, 2]
 
-            # TODO: HER ER FEILEN decode funksjon er laga for 2D til 1D ikke for 3D til 2D
-            # Decode the Y_batch for airway and direction separately and convert to Tensors
-            #airway_decoded = decode_one_hot_encoded_labels(Y_batch[0])     # []
-            #direction_decoded = decode_one_hot_encoded_labels(Y_batch[1])  # []
+            # Decode the one-hot-encoding for predictions
+            predictions_airway_decoded = torch.argmax(predictions_airway_softmax, axis=-1).flatten()
+            predictions_direction_decoded = torch.argmax(predictions_direction_softmax, axis=-1).flatten()
 
-            # Get the ground truths in correct format
-            ground_truth_airway = torch.tensor(np.array(Y_batch[0], dtype='int64'))
-            ground_truth_direction = torch.tensor(np.array(Y_batch[1], dtype='int64'))
-
-            print("SOFTMAX")
-            print("airway shape: ", predictions_airway.shape)
-            print("direction shape: ", predictions_direction.shape)
-
-            print("TENSORS")
-            print("airway shape: ", ground_truth_airway.shape)
-            print("direction shape: ", ground_truth_direction.shape)
-
+            # Decode the one-hot-encoding for targets
+            targets_airway_decoded = torch.argmax(Y_batch_airway, axis=-1).flatten()
+            targets_direction_decoded = torch.argmax(Y_batch_direction, axis=-1).flatten()
+            """
+            print("Target airway shape: ", targets_airway_decoded.shape)
+            print("Prediction airway shape: ", predictions_airway_decoded.shape)
+            print("Target airway: ", targets_airway_decoded)
+            print("Prediction airway: ", predictions_airway_decoded)
+            """
             # Compute F1 Score
-            f1_airway += f1_airway_segment_metric(predictions_airway.cpu(), ground_truth_airway.cpu())
-            f1_direction += f1_direction_metric(predictions_direction.cpu(), ground_truth_direction.cpu())
+            f1_airway += f1_airway_segment_metric(predictions_airway_decoded.cpu(), targets_airway_decoded.cpu())
+            """ 
+            print("F1 AIRWAY: ", f1_airway)
+            print("Target direction shape: ", targets_direction_decoded.shape)
+            print("Prediction direction shape: ", predictions_direction_decoded.shape)
+            print("Target direction: ", targets_direction_decoded)
+            print("Prediction direction: ", predictions_direction_decoded)
+            """
+            f1_direction += f1_direction_metric(predictions_direction_decoded.cpu(), targets_direction_decoded.cpu())
+
+            # Reshape 3D to 2D for the loss function
+            shape_airway = (-1, num_airway_segment_classes)
+            shape_direction = (-1, num_direction_classes)
+
+            Y_batch_airway = Y_batch_airway.reshape(shape_airway)
+            Y_batch_direction = Y_batch_direction.reshape(shape_direction)
+
+            predictions_airway = predictions_airway.reshape(shape_airway)
+            predictions_direction = predictions_direction.reshape(shape_direction)
 
             # Compute Loss
-            loss_airway += loss_criterion(predictions_airway, ground_truth_airway)
-            loss_direction += loss_criterion(predictions_direction, ground_truth_direction)
+            loss_airway += loss_criterion(predictions_airway.cpu(), Y_batch_airway.float().cpu())
+            loss_direction += loss_criterion(predictions_direction.cpu(), Y_batch_direction.float().cpu())
 
             batch_size += 1
 
@@ -90,15 +104,12 @@ def compute_loss_and_accuracy(
 
 
 def compute_combined_loss(airway_loss, direction_loss):
-    # TODO: vekting på lossa ln(num_classes)
-    # TODO: L1 * w1 + L2* w2 (vekt-forholdstall)
+    # TODO: Trenger en vekt som balanserer ut den andre: ln(2)/ln(27)
     return airway_loss + direction_loss
 
 
 def compute_combined_accuracy(airway_acc, direction_acc):
-    # TODO: vekting på lossa ln(num_classes)
-    # TODO: L1 * w1 + L2* w2 (vekt-forholdstall)
-    return airway_acc + direction_acc
+    return (airway_acc + direction_acc)/2.0
 
 
 class Trainer:
@@ -157,17 +168,17 @@ class Trainer:
             airway_segment_loss=collections.OrderedDict(),
             direction_loss=collections.OrderedDict(),
             combined_loss=collections.OrderedDict(),
-            airway_segment_acc=collections.OrderedDict(),
-            direction_acc=collections.OrderedDict(),
-            combined_acc=collections.OrderedDict(),
+            airway_accuracy=collections.OrderedDict(),
+            direction_accuracy=collections.OrderedDict(),
+            combined_accuracy=collections.OrderedDict(),
         )
         self.validation_history = dict(
             airway_segment_loss=collections.OrderedDict(),
             direction_loss=collections.OrderedDict(),
             combined_loss=collections.OrderedDict(),
-            airway_segment_acc=collections.OrderedDict(),
-            direction_acc=collections.OrderedDict(),
-            combined_acc=collections.OrderedDict(),
+            airway_accuracy=collections.OrderedDict(),
+            direction_accuracy=collections.OrderedDict(),
+            combined_accuracy=collections.OrderedDict(),
         )
         self.checkpoint_dir = pathlib.Path(f"checkpoints_{self.fps}")
 
@@ -193,14 +204,17 @@ class Trainer:
                                                                                 self.model, self.loss_criterion,
                                                                                 self.num_airway_segment_classes,
                                                                                 self.num_direction_classes)
-        # Store validation loss and accuracy
+        # Store validation loss
         self.validation_history["airway_segment_loss"][self.global_step] = val_airway_loss
         self.validation_history["direction_loss"][self.global_step] = val_direction_loss
         self.validation_history["combined_loss"][self.global_step] = compute_combined_loss(val_airway_loss, val_direction_loss)
+
+        # Store validation accuracy
         self.validation_history["airway_accuracy"][self.global_step] = val_airway_acc
         self.validation_history["direction_accuracy"][self.global_step] = val_direction_acc
         self.validation_history["combined_accuracy"][self.global_step] = compute_combined_accuracy(val_airway_acc, val_direction_acc)
 
+        # TODO: legge inn training loss
         used_time = time.time() - self.start_time
         print(
             f"Epoch: {self.epoch:>1}",
@@ -252,7 +266,6 @@ class Trainer:
         # Reshape 3D to 2D for the loss function
         shape_airway = (self.batch_size * self.num_frames_in_stack, self.num_airway_segment_classes)
         shape_direction = (self.batch_size * self.num_frames_in_stack, self.num_direction_classes)
-
         Y_batch_airway = Y_batch_airway.reshape(shape_airway)
         Y_batch_direction = Y_batch_direction.reshape(shape_direction)
         predictions_airway = predictions[0].reshape(shape_airway)
@@ -289,7 +302,7 @@ class Trainer:
             #print("Epoch: ", epoch)
 
             # Perform a full pass through all the training samples
-            for X_batch, Y_batch in tqdm(self.train_dataloader):
+            for X_batch, Y_batch in tqdm(self.train_dataloader, "Training", position=0, leave=True):
                 airway_segment_loss, direction_loss, combined_loss = self.train_step(X_batch, Y_batch)
 
                 # Store training history
@@ -299,27 +312,28 @@ class Trainer:
 
                 self.global_step += 1
 
-                # Compute loss/accuracy for validation set
-                if should_validate_model():
-                    self.validation_step()
-                    self.save_model()
-                    if self.should_early_stop():
-                        print("Early stopping.")
-                        return
+            # Compute loss/accuracy for validation set
+            #if should_validate_model():
+            self.validation_step()
+            self.save_model()
+            if self.should_early_stop():
+                print("Early stopping.")
+                return
 
     def save_model(self):
         def is_best_model():
             """
                 Returns True if current model has the lowest validation loss
             """
-            val_loss = self.validation_history["loss"]
+            val_loss = self.validation_history["combined_loss"]
             validation_losses = list(val_loss.values())
             return validation_losses[-1] == min(validation_losses)
 
         state_dict = self.model.state_dict()
-        filepath = self.checkpoint_dir.joinpath(f"{self.global_step}.ckpt")
-
-        save_checkpoint(state_dict, filepath, is_best_model())
+        filepath = self.checkpoint_dir.joinpath(f"{self.global_step}.pth")
+        #save_checkpoint(state_dict, filepath, is_best_model())
+        if is_best_model():
+            torch.save(self.model, filepath)
 
     def load_best_model(self):
         state_dict = load_best_checkpoint(self.checkpoint_dir)
@@ -330,12 +344,13 @@ class Trainer:
         self.model.load_state_dict(state_dict)
 
 
-def plot_loss(loss_dict: dict, label: str = None, npoints_to_average=1, plot_variance=True):
+def plot_loss(loss_dict: dict, label: str = None, color: str = None, npoints_to_average=1, plot_variance=True):
     """
     Args:
         loss_dict: a dictionary where keys are the global step and values are the given loss / accuracy
         label: a string to use as label in plot legend
         npoints_to_average: Number of points to average plot
+        color: color of curve in plot
     """
     global_steps = list(loss_dict.keys())
     loss = list(loss_dict.values())
@@ -354,8 +369,10 @@ def plot_loss(loss_dict: dict, label: str = None, npoints_to_average=1, plot_var
         mean_loss.append(np.mean(points))
         loss_std.append(np.std(points))
         steps.append(step)
-    plt.plot(steps, mean_loss,
-             label=f"{label} (mean over {npoints_to_average} steps)")
+    plt.plot(steps,
+             mean_loss,
+             label=f"{label} (mean over {npoints_to_average} steps)",
+             color=color)
     plt.fill_between(
         steps, np.array(mean_loss) -
                np.array(loss_std), np.array(mean_loss) + loss_std,
@@ -370,22 +387,32 @@ def create_plots(trainer: Trainer, path: str, name: str):
     plt.subplot(1, 2, 1)
     plt.title("Cross Entropy Loss")
     # Airway Segment Loss
-    plot_loss(trainer.train_history["airway_segment_loss"], label="Training combined loss")
-    plot_loss(trainer.validation_history["airway_segment_loss"], label="Validation combined loss")
+    plot_loss(trainer.train_history["airway_segment_loss"], label="Training Airway Loss", color='e06377')
+    plot_loss(trainer.validation_history["airway_segment_loss"], label="Validation Airway Loss", color='5b9aa0')
 
     # Direction Loss
-    plot_loss(trainer.train_history["direction_loss"], label="Training combined loss")
-    plot_loss(trainer.validation_history["direction_loss"], label="Validation combined loss")
+    plot_loss(trainer.train_history["direction_loss"], label="Training Direction Loss", color='e06377')
+    plot_loss(trainer.validation_history["direction_loss"], label="Validation Direction Loss", color='5b9aa0')
 
     # Combined loss
-    plot_loss(trainer.train_history["combined_loss"], label="Training combined loss")
-    plot_loss(trainer.validation_history["combined_loss"], label="Validation combined loss")
+    plot_loss(trainer.train_history["combined_loss"], label="Training Combined Loss", color='e06377')
+    plot_loss(trainer.validation_history["combined_loss"], label="Combined Validation Loss", color='5b9aa0')
 
     plt.legend()
     plt.subplot(1, 2, 2)
     plt.title("Accuracy")
-    plot_loss(trainer.validation_history["accuracy"], label="Validation Accuracy")
-    plot_loss(trainer.train_history["accuracy"], label="Training Accuracy")
+    # Airway Segment Accuracy
+    plot_loss(trainer.train_history["airway_accuracy"], label="Training Airway Accuracy", color='e06377')
+    plot_loss(trainer.validation_history["airway_accuracy"], label="Validation Airway Accuracy", color='5b9aa0')
+
+    # Direction Accuracy
+    plot_loss(trainer.train_history["direction_accuracy"], label="Training Direction Accuracy", color='e06377')
+    plot_loss(trainer.validation_history["direction_accuracy"], label="Validation Direction Accuracy", color='5b9aa0')
+
+    # Combined Accuracy
+    plot_loss(trainer.train_history["combined_accuracy"], label="Combined Training Accuracy", color='e06377')
+    plot_loss(trainer.validation_history["combined_accuracy"], label="Combined Validation Accuracy", color='5b9aa0')
+
     plt.legend()
     plt.savefig(plot_path.joinpath(f"{name}.png"))
     plt.show()
@@ -395,7 +422,6 @@ def train_model(batch_size, learning_rate, early_stop_count, epochs, num_validat
                 neural_net, train_dataloader, validation_dataloader, fps, train_plot_path,
                 train_plot_name, num_airway_segment_classes, num_direction_classes, num_frames_in_stack):
     print("-- TRAINING --")
-
     trainer = Trainer(
         batch_size,
         learning_rate,

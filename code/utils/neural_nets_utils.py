@@ -82,7 +82,7 @@ def decode_one_hot_encoded_labels(one_hot_encoded_labels):
     for batch_index, batch in enumerate(encoded_labels.detach().numpy()):
         decoded_label = np.argmax(batch)
         decoded_labels.append(decoded_label)
-
+    decoded_labels = torch.tensor(decoded_labels)
     return decoded_labels
 
 

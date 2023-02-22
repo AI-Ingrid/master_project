@@ -54,10 +54,10 @@ num_direction_classes = 2
 hidden_nodes = 128
 
 # Training specifications
-epochs = 1
-batch_size = 16
+epochs = 300
+batch_size = 4
 learning_rate = 7e-5
-early_stop_count = 5
+early_stop_count = 20
 num_validations = 16  # Num times for validation our model during training
 alpha = 0.25
 gamma = 2.0
@@ -81,6 +81,6 @@ csv_videos_path = root_directory_path + "/videos_csv/"
 relabeled_csv_videos_path = root_directory_path + "/relabeled_videos_csv/"
 dataset_path = root_directory_path + f"/datasets/"
 train_plot_path = "master/plots/training/"
-train_plot_name = f"train_{dataset_type}_fps_{fps}"
+train_plot_name = f"train_{dataset_type}_fps_{fps}"  #TODO: fikse navn
 test_plot_path = "master/plots/testing/"
 confusion_metrics_path = f"master/plots/testing/confusion_metrics_{dataset_type}_fps_{fps}"

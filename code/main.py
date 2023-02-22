@@ -39,7 +39,7 @@ def main():
                           num_direction_classes=num_direction_classes, num_frames_in_stack=num_frames_in_stack)
 
     # Test model
-    test_model(trainer, train_dataloader, test_dataloader, neural_net)
+    #test_model(trainer, train_dataloader, test_dataloader, neural_net)
 
 
 if __name__ == "__main__":

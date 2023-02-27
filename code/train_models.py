@@ -322,7 +322,7 @@ class Trainer:
 
     def load_model(self):
         model_path = self.checkpoint_dir.joinpath("best_model.pth")
-        self.model = torch.load(model_path)
+        self.model = torch.load(model_path, map_location=torch.device('cpu'))
 
 
 def plot_loss(loss_dict: dict, label: str = None, color: str = None, npoints_to_average=1, plot_variance=True):

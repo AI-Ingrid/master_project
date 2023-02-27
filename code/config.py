@@ -62,15 +62,15 @@ early_stop_count = 20
 num_validations = 16  # Num times for validation our model during training
 alpha = 0.25
 gamma = 2.0
-load_best_model = True
 test_slide_ratio_in_stack = 5
 
 # Testing trained model
-get_data_dist = True
-get_loss_and_accuracy = True
-get_confusion_metrics = True
-get_testset_pred = True
-get_f1_score = True
+load_best_model = True
+get_data_dist = False
+get_loss_and_accuracy = False
+get_confusion_metrics = False
+get_testset_pred = False
+get_f1_score = False
 
 # Data paths
 root_directory_path = f"/cluster/home/ingrikol/master/data/{dataset_type}"    # IDUN

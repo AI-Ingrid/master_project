@@ -5,11 +5,14 @@ from datasets import create_datasets_and_dataloaders
 from neural_nets import create_neural_net
 from train_models import train_model
 from test_models import test_model
+import os
 
 
 def main():
     """ The function running the entire pipeline of the project """
     seed(0)
+    if not perform_training:
+        os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # "0"
 
     # Preprocess the data from videos to frames with labels
     preprocess(convert_videos_to_frames=convert_videos_to_frames, label_the_frames=label_the_frames, videos_path=videos_path,

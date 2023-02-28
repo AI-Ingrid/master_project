@@ -20,7 +20,7 @@ label_map_dict = {
                 39: [14, "Left Main Bronchus"],
                 38: [15, "Left B6"],
                 42: [16, "Left Upper Division Bronchus"],
-                43: [17, "Left Singular Bronchus"],
+                43: [17, "Left Lingular Bronchus"],
                 7:  [18, "Right B4"],
                 6:  [19, "Right B5"],
                 91: [20, "Left B1+B2"],

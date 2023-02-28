@@ -32,6 +32,7 @@ def loss_and_accuracy(train, validation, test, neural_net):
 def get_testset_predictions(model, test_dataset, test_slide_ratio, num_frames):
     all_predictions = []
     all_targets = []
+    all_videos = []
 
     # Go through every video in test data set
     for video_frames, (airway_labels, direction_labels) in test_dataset:
@@ -64,29 +65,42 @@ def get_testset_predictions(model, test_dataset, test_slide_ratio, num_frames):
             predictions_airway, predictions_direction = model(stack_5D)
 
             # Softmax
-            probabilities_airway = torch.softmax(predictions_airway, dim=1)
-            probabilities_direction = torch.softmax(predictions_direction, dim=1)
+            probabilities_airway = torch.softmax(predictions_airway, dim=1)         # (1, 10, 27)
+            probabilities_direction = torch.softmax(predictions_direction, dim=1)   # (1, 10, 2)
 
             # Free memory
             del predictions_airway, predictions_direction
+
+            all_probabilities_airway = np.ndarray((1, num_frames * test_slide_ratio, num_airway_segment_classes))   # (1, 50, 27)
+            all_probabilities_direction = np.array((1, num_frames * test_slide_ratio, num_direction_classes))       # (1, 50, 2)
+
+            step = 0
+            for i in range(0, num_frames):
+                all_probabilities_airway[i + step] = probabilities_airway[i]
+                all_probabilities_direction[i + step] = probabilities_direction[i]
+                step += test_slide_ratio
 
             # Cast to numpy.cpu
             probabilities_airway = probabilities_airway.detach().cpu().numpy()
             probabilities_direction = probabilities_direction.detach().cpu().numpy()
 
-            # Argmax i numpy her???
-
             # Store predictions in the current video predictions list
             video_predictions.append((probabilities_airway, probabilities_direction))
 
         # Convert video predictions to np array
-        video_predictions = video_predictions.numpy()
+        video_predictions = video_predictions.numpy() # [(video_1_airway), (video_1_direction), (video_2_airway, video_2_direction)..]
+
+
+
+        # Har en array med tupler av arrays med 10 probabilities men vil ha 50
+        # for hver num_frames legg til probabilities basert på nåværende index og index + num_frames
+        # lag en fordelig for de nye verdiene som baserer seg på 2 ende punkt verdier og fordeler jevnt mellom dem, interpolation maybe?
+
+        # Argmax i numpy her???
 
         # Fill every frame with a prediction (interpolate)
-        
 
         # Remove extended stack
-
 
         # Store video predictions in all predictions list
         all_predictions.append(video_predictions)

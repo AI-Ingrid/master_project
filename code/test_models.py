@@ -9,6 +9,7 @@ from config import load_best_model, confusion_metrics_path, test_plot_path, get_
 import pandas as pd
 import numpy as np
 import pathlib
+import scipy
 from utils.neural_nets_utils import to_cuda
 
 def data_distribution(train, validation, test):
@@ -32,11 +33,11 @@ def loss_and_accuracy(train, validation, test, neural_net):
 def get_testset_predictions(model, test_dataset, test_slide_ratio, num_frames):
     all_predictions = []
     all_targets = []
-    all_videos = []
 
     # Go through every video in test data set
     for video_frames, (airway_labels, direction_labels) in test_dataset:
-        video_predictions = []
+        airway_predictions = []
+        direction_predictions = []
 
         # Handle stack edge case to make sure every stack has length num_frames
         extended_video_frames = copy.deepcopy(video_frames)
@@ -62,48 +63,37 @@ def get_testset_predictions(model, test_dataset, test_slide_ratio, num_frames):
             stack_5D = to_cuda(stack_5D)
 
             # Send stack into the model and get predictions
-            predictions_airway, predictions_direction = model(stack_5D)
+            predictions_airway, predictions_direction = model(stack_5D)  # (1, 10, 27), (1, 10, 2)
+
+            # Remove batch dim
+            predictions_airway = torch.squeeze(predictions_airway)  # (10, 27)
+            predictions_direction = torch.squeeze(predictions_direction)  # (10, 2)
 
             # Softmax
-            probabilities_airway = torch.softmax(predictions_airway, dim=1)         # (1, 10, 27)
-            probabilities_direction = torch.softmax(predictions_direction, dim=1)   # (1, 10, 2)
+            probabilities_airway = torch.softmax(predictions_airway, dim=1).detach().cpu()    # (10, 27)
+            probabilities_direction = torch.softmax(predictions_direction, dim=1).detach().cpu()   # (10, 2)
 
             # Free memory
             del predictions_airway, predictions_direction
 
-            all_probabilities_airway = np.ndarray((1, num_frames * test_slide_ratio, num_airway_segment_classes))   # (1, 50, 27)
-            all_probabilities_direction = np.array((1, num_frames * test_slide_ratio, num_direction_classes))       # (1, 50, 2)
+            # Argmax
+            predictions_airway = np.argmax(probabilities_airway, axis=1)  # (10)
+            predictions_direction = np.argmax(probabilities_direction, axis=1)  # (10)
 
-            step = 0
-            for i in range(0, num_frames):
-                all_probabilities_airway[i + step] = probabilities_airway[i]
-                all_probabilities_direction[i + step] = probabilities_direction[i]
-                step += test_slide_ratio
-
-            # Cast to numpy.cpu
-            probabilities_airway = probabilities_airway.detach().cpu().numpy()
-            probabilities_direction = probabilities_direction.detach().cpu().numpy()
+            # Interpolate - Resize
+            full_stack_predictions_airway = scipy.ndimage.zoom(predictions_airway, zoom=5, order=0)
+            full_stack_predictions_direction = scipy.ndimage.zoom(predictions_direction, zoom=5, order=0)
 
             # Store predictions in the current video predictions list
-            video_predictions.append((probabilities_airway, probabilities_direction))
+            airway_predictions.append(torch.tensor(full_stack_predictions_airway))
+            direction_predictions.append(torch.tensor(full_stack_predictions_direction))
 
-        # Convert video predictions to np array
-        video_predictions = video_predictions.numpy() # [(video_1_airway), (video_1_direction), (video_2_airway, video_2_direction)..]
+        # Store video predictions in all predictions list without the extended stack
+        all_predictions.append((airway_predictions, direction_predictions))
 
-
-
-        # Har en array med tupler av arrays med 10 probabilities men vil ha 50
-        # for hver num_frames legg til probabilities basert på nåværende index og index + num_frames
-        # lag en fordelig for de nye verdiene som baserer seg på 2 ende punkt verdier og fordeler jevnt mellom dem, interpolation maybe?
-
-        # Argmax i numpy her???
-
-        # Fill every frame with a prediction (interpolate)
-
-        # Remove extended stack
-
-        # Store video predictions in all predictions list
-        all_predictions.append(video_predictions)
+        # Argmax on one hot encoded ground truth values
+        airway_labels = np.argmax(airway_labels, axis=1)
+        direction_labels = np.argmax(direction_labels, axis=1)
 
         # Store all targets in a all targets list
         all_targets.append((airway_labels, direction_labels))

@@ -1,6 +1,8 @@
 """
 File for setting all parameters for the master project. All changes and variables is set here
 """
+from datetime import datetime
+
 # Preprocessing
 fps = 10  # Sampling frequency for video to frames
 label_map_dict = {
@@ -43,7 +45,7 @@ dataset_type = 'synthetic'  # {'synthetic' 'human'}
 test_split = 0.1  # Fraction that split data into test data
 validation_split = 0.2  # Fraction that split data into validation data
 num_frames_in_stack = 10  # Num frames in a stack that gets sent into RNN
-slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack TODO: Vurdere en variabel her som feks random mellom 3- 7
+slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack
 num_stacks = 1000
 split_the_data = False  # Split videos into train, test or validation
 shuffle_dataset = True
@@ -54,12 +56,12 @@ num_direction_classes = 2
 hidden_nodes = 128
 
 # Training specifications
-perform_training = False
-epochs = 1
+perform_training = True
+epochs = 500
 batch_size = 4
-learning_rate = 7e-5
+learning_rate = 1e-3
 early_stop_count = 20
-num_validations = 16  # Num times for validation our model during training
+num_validations = 100  # Num times for validation our model during training
 alpha = 0.25
 gamma = 2.0
 test_slide_ratio_in_stack = 5
@@ -73,16 +75,22 @@ get_testset_pred = False
 get_f1_score = False
 
 # Data paths
-root_directory_path = f"/cluster/home/ingrikol/master/data/{dataset_type}"    # IDUN
-#root_directory_path = "/Users/ikolderu/PycharmProjects/master/data/synthetic"  #LOCAL
-videos_path = root_directory_path + f"/{dataset_type}_videos/"
-frames_path = root_directory_path + f"/{dataset_type}_frames"
-label_file_path = root_directory_path + f"/labeling_info/{dataset_type}_branches_positions_numbers.txt"
-names_file_path = root_directory_path + f"/labeling_info/{dataset_type}_branch_number_name.txt"
-csv_videos_path = root_directory_path + "/videos_csv/"
-relabeled_csv_videos_path = root_directory_path + "/relabeled_videos_csv/"
-dataset_path = root_directory_path + f"/datasets/"
-train_plot_path = "master/plots/training/"
-train_plot_name = f"train_{dataset_type}_fps_{fps}"  #TODO: fikse navn
-test_plot_path = "master/plots/testing/"
-confusion_metrics_path = f"master/plots/testing/confusion_metrics_{dataset_type}_fps_{fps}"
+root_directory_path = "/cluster/home/ingrikol/master"
+data_path = f"{root_directory_path}/data/{dataset_type}"
+videos_path = f"{data_path}/{dataset_type}_videos/"
+frames_path = f"{data_path}/{dataset_type}_frames"
+label_file_path = f"{data_path}/labeling_info/{dataset_type}_branches_positions_numbers.txt"
+names_file_path = f"{data_path}/labeling_info/{dataset_type}_branch_number_name.txt"
+csv_videos_path = f"{data_path}/videos_csv/"
+relabeled_csv_videos_path = f"{data_path}/relabeled_videos_csv/"
+dataset_path = f"{data_path}/datasets/"
+
+# Training and Testing paths
+model_type = "baseline"
+date_and_time = datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
+train_plot_path = f"{root_directory_path}/plots/training/"
+train_plot_name = f"{date_and_time}_{dataset_type}_{model_type}_fps_{fps}"
+test_plot_path = f"{root_directory_path}/plots/testing/"
+confusion_metrics_name = f"{date_and_time}_confusion_metrics_{dataset_type}_{model_type}_fps_{fps}"
+checkpoint_path = f"{root_directory_path}/checkpoints/{model_type}/"
+checkpoint_name = f"{date_and_time}_{model_type}_fps_{fps}"

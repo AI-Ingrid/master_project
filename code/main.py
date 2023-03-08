@@ -11,8 +11,8 @@ import os
 def main():
     """ The function running the entire pipeline of the project """
     seed(0)
-    if not perform_training:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # "0"
+    if perform_training:
+        os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # "0"
 
     # Preprocess the data from videos to frames with labels
     preprocess(convert_videos_to_frames=convert_videos_to_frames, label_the_frames=label_the_frames, videos_path=videos_path,
@@ -35,14 +35,16 @@ def main():
                                    num_airway_segment_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes)
 
     # Train model
-    trainer = train_model(perform_training=perform_training, batch_size=batch_size, learning_rate=learning_rate, early_stop_count=early_stop_count, epochs=epochs,
-                          num_validations=num_validations, neural_net=neural_net, train_dataloader=train_dataloader,
-                          validation_dataloader=validation_dataloader, fps=fps, train_plot_path=train_plot_path,
-                          train_plot_name=train_plot_name, num_airway_segment_classes=num_airway_segment_classes,
-                          num_direction_classes=num_direction_classes, num_frames_in_stack=num_frames_in_stack)
+    trainer = train_model(perform_training=perform_training, batch_size=batch_size, learning_rate=learning_rate,
+                          early_stop_count=early_stop_count, epochs=epochs, num_validations=num_validations,
+                          neural_net=neural_net, train_dataloader=train_dataloader, validation_dataloader=validation_dataloader,
+                          fps=fps, train_plot_path=train_plot_path, train_plot_name=train_plot_name,
+                          num_airway_segment_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes,
+                          num_frames_in_stack=num_frames_in_stack, checkpoint_path=checkpoint_path, checkpoint_name=checkpoint_name)
 
     # Test model
-    test_model(trainer=trainer, test_dataset=test_dataset, test_slide_ratio=test_slide_ratio_in_stack, num_frames=num_frames_in_stack)
+    test_model(trainer=trainer, test_dataset=test_dataset, test_slide_ratio=test_slide_ratio_in_stack, num_frames=num_frames_in_stack,
+               num_airway_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes)
 
 
 if __name__ == "__main__":

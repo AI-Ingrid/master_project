@@ -37,7 +37,7 @@ def compute_f1_and_loss(
     f1_direction_metric = tm.F1Score(average='macro', task='multilabel', num_classes=num_direction_classes)
 
     with torch.no_grad():
-        for (X_batch, (Y_batch_airway, Y_batch_direction)) in tqdm(dataloader, "Validation", position=0, leave=True):
+        for (X_batch, (Y_batch_airway, Y_batch_direction)) in tqdm(dataloader):
             # Transfer images/labels to GPU VRAM, if possible
             X_batch = to_cuda(X_batch)
 
@@ -83,11 +83,6 @@ def compute_f1_and_loss(
     f1_airway = f1_airway / batch_size
     f1_direction = f1_direction / batch_size
 
-    print(f'F1 Airway Segment Score: {f1_airway}')
-    print(f'F1 Direction Score: {f1_direction}')
-    print(f'Loss Airway Segment: {loss_airway}')
-    print(f'Loss Direction: {loss_direction}')
-
     return loss_airway, loss_direction, f1_airway, f1_direction
 
 
@@ -114,7 +109,9 @@ class Trainer:
                  fps: int,
                  num_airway_segment_classes: int,
                  num_direction_classes: int,
-                 num_frames_in_stack: int):
+                 num_frames_in_stack: int,
+                 checkpoint_path: str,
+                 checkpoint_name: str):
         """
             Initialize our trainer class.
         """
@@ -136,6 +133,7 @@ class Trainer:
         self.num_airway_segment_classes = num_airway_segment_classes
         self.num_direction_classes = num_direction_classes
         self.num_frames_in_stack = num_frames_in_stack
+
         # Set loss criterion
         self.loss_criterion = torch.nn.CrossEntropyLoss()
 
@@ -168,7 +166,7 @@ class Trainer:
             direction_f1=collections.OrderedDict(),
             combined_f1=collections.OrderedDict(),
         )
-        self.checkpoint_dir = pathlib.Path(f"checkpoints_baseline_{self.fps}")
+        self.checkpoint_dir = pathlib.Path(checkpoint_path + checkpoint_name)
 
     def validation_step(self):
         """
@@ -202,17 +200,20 @@ class Trainer:
         self.validation_history["direction_f1"][self.global_step] = val_direction_f1
         self.validation_history["combined_f1"][self.global_step] = compute_combined_accuracy(val_airway_f1, val_direction_f1)
 
-        # TODO: legge inn training loss
         used_time = time.time() - self.start_time
         print(f"Epoch: {self.epoch:>1}")
         print(f"Batches per seconds: {self.global_step / used_time:.2f}")
         print(f"Global step: {self.global_step:>6}")
-        print(f"Validation Airway Segment Loss: {val_airway_loss:.2f}")
-        print(f"Validation Direction Loss: {val_direction_loss:.2f}")
-        print(f"Validation Airway F1: {val_airway_f1:.3f}")
-        print(f"Validation Direction F1: {val_direction_f1:.3f}")
         print(f"Train Airway F1 {train_airway_f1:.3f}")
         print(f"Train Direction F1: {train_direction_f1:.3f}")
+        print(f"Validation Airway Segment Loss: {train_airway_loss:.2f}")
+        print(f"Validation Direction Loss: {train_direction_loss:.2f}")
+
+        print(f"Validation Airway F1: {val_airway_f1:.3f}")
+        print(f"Validation Direction F1: {val_direction_f1:.3f}")
+        print(f"Validation Airway Segment Loss: {val_airway_loss:.2f}")
+        print(f"Validation Direction Loss: {val_direction_loss:.2f}")
+
         self.model.train()
 
     def should_early_stop(self):
@@ -285,10 +286,9 @@ class Trainer:
 
         for epoch in range(self.epochs):
             self.epoch = epoch
-            #print("Epoch: ", epoch)
 
             # Perform a full pass through all the training samples
-            for X_batch, Y_batch in tqdm(self.train_dataloader, "Training", position=0, leave=True):
+            for X_batch, Y_batch in tqdm(self.train_dataloader, "Training"):
                 airway_segment_loss, direction_loss, combined_loss = self.train_step(X_batch, Y_batch)
 
                 # Store training history
@@ -315,8 +315,7 @@ class Trainer:
             return validation_losses[-1] == min(validation_losses)
 
         if is_best_model():
-            directory_path = pathlib.Path(self.checkpoint_dir)
-            directory_path.mkdir(exist_ok=True)
+            self.checkpoint_dir.mkdir(exist_ok=True)
             model_path = self.checkpoint_dir.joinpath("best_model.pth")
             torch.save(self.model, model_path)
 
@@ -401,7 +400,8 @@ def create_plots(trainer: Trainer, path: str, name: str):
 
 def train_model(perform_training, batch_size, learning_rate, early_stop_count, epochs, num_validations,
                 neural_net, train_dataloader, validation_dataloader, fps, train_plot_path,
-                train_plot_name, num_airway_segment_classes, num_direction_classes, num_frames_in_stack):
+                train_plot_name, num_airway_segment_classes, num_direction_classes, num_frames_in_stack,
+                checkpoint_path, checkpoint_name):
     trainer = Trainer(
         batch_size,
         learning_rate,
@@ -415,6 +415,8 @@ def train_model(perform_training, batch_size, learning_rate, early_stop_count, e
         num_airway_segment_classes,
         num_direction_classes,
         num_frames_in_stack,
+        checkpoint_path,
+        checkpoint_name,
     )
     if perform_training:
         print("-- TRAINING --")

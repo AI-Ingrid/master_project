@@ -46,7 +46,7 @@ test_split = 0.1  # Fraction that split data into test data
 validation_split = 0.2  # Fraction that split data into validation data
 num_frames_in_stack = 10  # Num frames in a stack that gets sent into RNN
 slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack
-num_stacks = 1000
+num_stacks = 1024  # Must be divisible by batch size
 split_the_data = False  # Split videos into train, test or validation
 shuffle_dataset = True
 
@@ -57,8 +57,9 @@ hidden_nodes = 128
 
 # Training specifications
 perform_training = True
-epochs = 500
-batch_size = 4
+epochs = 1000
+batch_size = 16
+accum_iter = 4  # batch accumulation parameter
 learning_rate = 1e-3
 early_stop_count = 20
 num_validations = 100  # Num times for validation our model during training
@@ -92,5 +93,6 @@ train_plot_path = f"{root_directory_path}/plots/training/"
 train_plot_name = f"{date_and_time}_{dataset_type}_{model_type}_fps_{fps}"
 test_plot_path = f"{root_directory_path}/plots/testing/"
 confusion_metrics_name = f"{date_and_time}_confusion_metrics_{dataset_type}_{model_type}_fps_{fps}"
-checkpoint_path = f"{root_directory_path}/checkpoints/{model_type}/"
-checkpoint_name = f"{date_and_time}_{model_type}_fps_{fps}"
+checkpoint_path = f"{root_directory_path}/checkpoints/"
+checkpoint_name = f"{model_type}_fps_{fps}_epochs_{epochs}"
+#checkpoint_name = f"{date_and_time}_{model_type}_fps_{fps}"

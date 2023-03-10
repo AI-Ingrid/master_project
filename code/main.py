@@ -10,9 +10,10 @@ import os
 
 def main():
     """ The function running the entire pipeline of the project """
-    seed(0)
+    #seed(0)
+
     if perform_training:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # "0"
+        os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # "0"
 
     # Preprocess the data from videos to frames with labels
     preprocess(convert_videos_to_frames=convert_videos_to_frames, label_the_frames=label_the_frames, videos_path=videos_path,

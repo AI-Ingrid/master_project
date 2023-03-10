@@ -132,12 +132,12 @@ def get_predictions(model, test_dataset, test_slide_ratio, num_frames):
 
 def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_classes, num_direction_classes):
     print("-- TESTING --")
-    checkpoint_dir = pathlib.Path(f"checkpoints_baseline_{10}")
-    model_path = checkpoint_dir.joinpath("best_model.pth")
-    model = torch.load(model_path)  # , map_location=torch.device('cpu'))
-    model.eval()
+    #checkpoint_dir = pathlib.Path(f"/cluster/home/ingrikol/master/checkpoints/baseline/08-03-2023_15-57-36_baseline_fps_10")
+    #model_path = checkpoint_dir.joinpath("best_model.pth")
+    #model = torch.load(model_path)  # , map_location=torch.device('cpu'))
+    #model.eval()
 
-    if not load_best_model:
+    if load_best_model:
         # Load neural net model
         trainer.load_model()
 
@@ -145,7 +145,7 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_c
         trainer.model.eval()
 
     # Run predictions on testset
-    predictions, targets = get_predictions(model, test_dataset, test_slide_ratio, num_frames)
+    predictions, targets = get_predictions(trainer.model, test_dataset, test_slide_ratio, num_frames)
 
     # Get F1 Macro Score, Precision and Recall
     get_metrics(predictions, targets, num_airway_classes, num_direction_classes)

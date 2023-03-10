@@ -19,13 +19,14 @@ class TimeDistributer(nn.Module):
         """
         # TODO: CROP AND SCALE FRAMES TO (384, 384) fordi ViT-en trenger det
         # [32, 30, 256, 256, 3]
+        # TODO: bør flyttes til dataset
         X = X.transpose(2, 3)  # [32, 30, 256, 256, 3]
         X = X.transpose(2, 4)  # [32, 30, 3, 256, 256]
         org_shape = tuple(X.shape)
 
         # Reshape to 4 dim
         X_reshaped = X.reshape((torch.prod(torch.tensor(org_shape[:2])),) + org_shape[2:])  # [960, 3, 256, 256]
-        output = self.module(X_reshaped.float().cuda())
+        output = self.module(X_reshaped.float())
 
         # Reshape back to 5 dim
         output_reshaped = output.reshape(org_shape[:2] + (output.shape[-1],))  # [32, 30, 3, 256, 256] ??
@@ -73,6 +74,10 @@ class NavigationNet(nn.Module):
 
         # Handle training for certain layers
         for param in self.resnet.parameters():
+            param.requires_grad = False
+        for param in self.resnet.layer3.parameters():
+            param.requires_grad = True
+        for param in self.resnet.layer4.parameters():
             param.requires_grad = True
         for param in self.RNN.parameters():
             param.requires_grad = True

@@ -68,10 +68,11 @@ class RandomGeneratorDataset(Dataset):
         start_index = np.random.choice(start_frame_indices)
 
         # Create a stack from given start frame index
-        stack_df = possible_frames.iloc[start_index: start_index + self.num_frames]
+        stack_df = possible_frames.iloc[start_index: (start_index + self.num_frames)]
 
         # Separate the stack's data into frames, airway labels and direction labels
         frames, airway_labels, direction_labels = separate_dataframe(stack_df, self.transform, self.num_airway_classes, self.num_direction_classes)
+
         return frames, [airway_labels, direction_labels]
 
 
@@ -171,7 +172,7 @@ def create_datasets_and_dataloaders(validation_split, test_split, raw_dataset_pa
                                            num_airway_classes=num_airway_segment_classes,
                                            num_direction_classes=num_direction_classes, transform=transform)
 
-    train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=shuffle_dataset, num_workers=4, pin_memory=True)
+    train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=shuffle_dataset, num_workers=4, pin_memory=True, drop_last=True)
 
     # Create Validation DataSet and DataLoader
     validation_dataset = RandomGeneratorDataset(file_list=validation_csv_files, num_stacks=num_stacks,
@@ -179,7 +180,7 @@ def create_datasets_and_dataloaders(validation_split, test_split, raw_dataset_pa
                                           num_airway_classes=num_airway_segment_classes,
                                           num_direction_classes=num_direction_classes, transform=transform)
 
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=batch_size, shuffle=shuffle_dataset, num_workers=4, pin_memory=True)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=batch_size, shuffle=shuffle_dataset, num_workers=4, pin_memory=True, drop_last=True)
 
     # Create Test Dataset
     test_dataset = TestDataSet(file_list=test_csv_files, transform=transform,

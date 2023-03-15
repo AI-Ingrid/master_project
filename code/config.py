@@ -44,8 +44,8 @@ frame_dimension = (384, 384)  # Dimension of the scaled frames that will be sent
 dataset_type = 'synthetic'  # {'synthetic' 'human'}
 test_split = 0.1  # Fraction that split data into test data
 validation_split = 0.2  # Fraction that split data into validation data
-num_frames_in_stack = 10  # Num frames in a stack that gets sent into RNN
-slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack
+num_frames_in_stack = 5  # Num frames in a stack that gets sent into RNN
+slide_ratio_in_stack = 10  # Ratio of slide between frames in a stack
 num_stacks = 1024  # Must be divisible by batch size
 split_the_data = False  # Split videos into train, test or validation
 shuffle_dataset = True
@@ -65,7 +65,7 @@ early_stop_count = 20
 num_validations = 100  # Num times for validation our model during training
 alpha = 0.25
 gamma = 2.0
-test_slide_ratio_in_stack = 5
+test_slide_ratio_in_stack = 10
 
 # Testing trained model
 load_best_model = True
@@ -94,5 +94,5 @@ train_plot_name = f"{date_and_time}_{dataset_type}_{model_type}_fps_{fps}"
 test_plot_path = f"{root_directory_path}/plots/testing/"
 confusion_metrics_name = f"{date_and_time}_confusion_metrics_{dataset_type}_{model_type}_fps_{fps}"
 checkpoint_path = f"{root_directory_path}/checkpoints/"
-checkpoint_name = f"{model_type}_fps_{fps}_epochs_{epochs}"
+checkpoint_name = f"{model_type}_fps_{fps}_epochs_{epochs}_focal_loss"
 #checkpoint_name = f"{date_and_time}_{model_type}_fps_{fps}"

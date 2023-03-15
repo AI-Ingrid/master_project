@@ -2,6 +2,8 @@ import torch
 import numpy as np
 import pathlib
 import random
+import torch.nn as nn
+import torch.nn.functional as F
 
 
 # Allow torch/cudnn to optimize/analyze the input/output shape of convolutions
@@ -12,6 +14,18 @@ torch.backends.cudnn.benchmark = True
 # Cudnn is not deterministic by default. Set this to True if you want
 # to be sure to reproduce your results
 torch.backends.cudnn.deterministic = True
+
+
+def focal_loss(predictions, labels, num_classes, alpha, gamma):
+    # Predictions = [batch_size * num_frames = 160, num_classes = 27 eller 2]
+    # Labels = [batch_size * num_frames = 160, num_classes = 27 eller 2]
+
+    cross_entropy_loss = torch.nn.functional.cross_entropy(predictions, labels, reduction='none')  # important to add reduction='none' to keep per-batch-item loss
+    pt = torch.exp(-cross_entropy_loss)
+    loss = (alpha * (1 - pt) ** gamma * cross_entropy_loss).mean()
+
+
+    return loss
 
 
 def set_seed(seed: int):

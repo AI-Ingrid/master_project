@@ -19,12 +19,9 @@ torch.backends.cudnn.deterministic = True
 def focal_loss(predictions, labels, num_classes, alpha, gamma):
     # Predictions = [batch_size * num_frames = 160, num_classes = 27 eller 2]
     # Labels = [batch_size * num_frames = 160, num_classes = 27 eller 2]
-
     cross_entropy_loss = torch.nn.functional.cross_entropy(predictions, labels, reduction='none')  # important to add reduction='none' to keep per-batch-item loss
     pt = torch.exp(-cross_entropy_loss)
     loss = (alpha * (1 - pt) ** gamma * cross_entropy_loss).mean()
-
-
     return loss
 
 

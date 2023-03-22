@@ -25,14 +25,14 @@ def separate_dataframe(video_df, transform, num_airway_segment_classes, num_dire
     new_frames = np.array(frames)
 
     # Convert to Tensor
-    frames = torch.tensor(new_frames)  # [num_frames=30, width=384, height=384, channels=3]
+    frames = torch.tensor(new_frames)  # [num_frames=5, width=384, height=384, channels=3]
     frames = torch.moveaxis(frames, 3, 1)
 
     # One hot encode labels
     airway_labels = torch.nn.functional.one_hot(torch.tensor(airway_labels.values),
-                                                num_classes=num_airway_segment_classes)  # [num_frames=30, num_classes = 27]
+                                                num_classes=num_airway_segment_classes)  # [num_frames=5, num_classes = 27]
     direction_labels = torch.nn.functional.one_hot(torch.tensor(direction_labels.values),
-                                                   num_classes=num_direction_classes)  # [num_frames=30, num_classes=2]
+                                                   num_classes=num_direction_classes)  # [num_frames=5, num_classes=2]
 
     return frames, airway_labels.float(), direction_labels.float()
 

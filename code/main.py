@@ -1,24 +1,20 @@
-from random import seed
 from config import *
 from preprocess import preprocess
 from datasets import create_datasets_and_dataloaders
 from neural_nets import create_neural_net
 from train_models import train_model
 from test_models import test_model
-import os
 
 
 def main():
     """ The function running the entire pipeline of the project """
-    #seed(0)
-
-    if perform_training:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # "0"
 
     # Preprocess the data from videos to frames with labels
-    preprocess(convert_videos_to_frames=convert_videos_to_frames, label_the_frames=label_the_frames, videos_path=videos_path,
-               frames_path=frames_path, fps=fps, raw_dataset_path=csv_videos_path, label_file_path=label_file_path,
-               label_map_dict=label_map_dict, relabel_the_frames=relabel_the_frames, relabeled_csv_videos_path=relabeled_csv_videos_path)
+    preprocess(convert_videos_to_frames=convert_videos_to_frames,
+               label_the_frames=label_the_frames, videos_path=videos_path,
+               frames_path=frames_path, fps=fps, raw_dataset_path=csv_videos_path,
+               label_file_path=label_file_path,label_map_dict=label_map_dict,
+               relabel_the_frames=relabel_the_frames, relabeled_csv_videos_path=relabeled_csv_videos_path)
 
     # Create datasets and dataloaders
     train_dataloader, validation_dataloader, test_dataset = create_datasets_and_dataloaders(
@@ -32,7 +28,7 @@ def main():
     )
 
     # Create neural network
-    neural_net = create_neural_net(hidden_nodes=hidden_nodes, num_frames_in_stack=num_frames_in_stack,
+    neural_net = create_neural_net(hidden_nodes=hidden_nodes, num_features=num_features, num_LSTM_cells=num_LSTM_cells, num_frames_in_stack=num_frames_in_stack,
                                    num_airway_segment_classes=num_airway_segment_classes,
                                    num_direction_classes=num_direction_classes, frame_dimension=frame_dimension,
                                    batch_size=batch_size)
@@ -40,15 +36,18 @@ def main():
     # Train model
     trainer = train_model(perform_training=perform_training, batch_size=batch_size, learning_rate=learning_rate,
                           early_stop_count=early_stop_count, epochs=epochs, num_validations=num_validations,
-                          neural_net=neural_net, train_dataloader=train_dataloader, validation_dataloader=validation_dataloader,
-                          fps=fps, train_plot_path=train_plot_path, train_plot_name=train_plot_name,
-                          num_airway_segment_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes,
-                          num_frames_in_stack=num_frames_in_stack, checkpoint_path=checkpoint_path, checkpoint_name=checkpoint_name,
-                          alpha=alpha, gamma=gamma)
+                          neural_net=neural_net, train_dataloader=train_dataloader,
+                          validation_dataloader=validation_dataloader, fps=fps, train_plot_path=train_plot_path,
+                          train_plot_name=train_plot_name, num_airway_segment_classes=num_airway_segment_classes,
+                          num_direction_classes=num_direction_classes, num_frames_in_stack=num_frames_in_stack,
+                          model_path=model_path, model_name=model_name, use_focal_loss=use_focal_loss, alpha=alpha,
+                          gamma=gamma)
 
     # Test model
-    test_model(trainer=trainer, test_dataset=test_dataset, test_slide_ratio=test_slide_ratio_in_stack, num_frames=num_frames_in_stack,
-               num_airway_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes, data_path=data_path)
+    test_model(trainer=trainer, test_dataset=test_dataset, test_slide_ratio=test_slide_ratio_in_stack,
+               num_frames=num_frames_in_stack, num_airway_classes=num_airway_segment_classes,
+               num_direction_classes=num_direction_classes, data_path=data_path, frame_dimension=frame_dimension,
+               convert_to_onnx=convert_to_onnx, model_name=model_name)
 
 
 if __name__ == "__main__":

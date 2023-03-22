@@ -4,35 +4,34 @@ from torch import nn
 from pytorch_pretrained_vit import ViT
 
 
-class TimeDistributer(nn.Module):
+class TimeDistributed(nn.Module):
     def __init__(self, feature_extractor, org_shape):
-        super(TimeDistributer, self).__init__()
+        super(TimeDistributed, self).__init__()
         self.feature_extractor = feature_extractor
         self.org_shape = org_shape
 
     def forward(self, X):
         """
-        Reshape 5 dim input into 4 dim input by merging columns batch_size and time_steps,
-        such that:
-        In: [batch_dim, time_steps, height, width, channels]
-        Temp: [batch_dim * time_steps, height, width, channels]
-        Then reshaping back into 5 dim
+        Reshape 5 dim input ([batch_dim, time_steps, height, width, channels]) into 4 dim
+        ([batch_dim * time_steps, height, width, channels]) by merging columns batch_size and time_steps,
+        such that the feature extractor can handle the input. When features are returned in a 2D output, the output
+        is reshaped to 3D ([batch_size=16, num_frames=5, features=128])
         """
         # Reshape to 4 dim
-        X_reshaped = X.contiguous().view((-1,) + self.org_shape[2:])  # (samples * timesteps, input_size)
-        #X_reshaped = X.reshape((self.org_shape[0] * self.org_shape[1],) + self.org_shape[2:])  # [80, 3, 384, 384]
-        output = self.feature_extractor(X_reshaped.float())  # [80, 128]
+        X_reshaped = X.contiguous().view((-1,) + self.org_shape[2:])  # [16 * 5, 3, 384, 384]
+        output = self.feature_extractor(X_reshaped.float())  # [ 16 * 5, 128]
 
         # Reshape to 3D
-        output_reshaped = output.contiguous().view((-1, self.org_shape[1]) + (output.shape[-1],))
-        #output_reshaped = output.reshape(self.org_shape[:2] + (output.shape[-1],))  # [batch_size=16, num_frames=5, features=128]
+        output_reshaped = output.contiguous().view((-1, self.org_shape[1]) + (output.shape[-1],))  # [16, 5, 128]
         return output_reshaped
 
 
 class NavigationNet(nn.Module):
-    def __init__(self, hidden_nodes, num_frames_in_stack, num_airway_segment_classes, num_direction_classes, frame_dimension, batch_size):
+    def __init__(self, hidden_nodes, num_features, num_LSTM_cells, num_frames_in_stack, num_airway_segment_classes, num_direction_classes, frame_dimension, batch_size):
         super().__init__()
         self.hidden_nodes = hidden_nodes
+        self.num_features = num_features
+        self.num_LSTM_cells = num_LSTM_cells
         self.num_frames_in_stack = num_frames_in_stack
         self.num_airway_segment_classes = num_airway_segment_classes
         self.num_direction_classes = num_direction_classes
@@ -41,27 +40,23 @@ class NavigationNet(nn.Module):
 
         # Feature extractor: Resnet18 or ViT
         self.feature_extractor = torchvision.models.resnet18('ResNet18_Weights')
-        self.feature_extractor.fc = nn.Linear(512, 128, bias=True)
-        self.time_distributer = TimeDistributer(self.feature_extractor, self.shape)
+        self.feature_extractor.fc = nn.Linear(512, self.num_features, bias=True)
+        self.time_distributed = TimeDistributed(self.feature_extractor, self.shape)
 
         # LSTM
-        self.LSTM = nn.LSTM(input_size=128, hidden_size=self.hidden_nodes, num_layers=3, batch_first=True)
+        self.LSTM = nn.LSTM(input_size=self.num_features, hidden_size=self.hidden_nodes, num_layers=self.num_LSTM_cells, batch_first=True)
 
         # Classifier Direction
         self.direction_classifier = nn.Sequential(
             nn.Linear(self.hidden_nodes, 32),
-            #nn.BatchNorm1d(32),
             nn.ReLU(),
-            #nn.Dropout(0.5),
             nn.Linear(32, self.num_direction_classes),
         )
 
         # Classifier Airway
         self.airway_classifier = nn.Sequential(
             nn.Linear(self.hidden_nodes, 32),
-            #nn.BatchNorm1d(32),
             nn.ReLU(),
-            #nn.Dropout(0.5),
             nn.Linear(32, self.num_airway_segment_classes),
         )
 
@@ -77,7 +72,7 @@ class NavigationNet(nn.Module):
 
     def forward(self, X):
         # Feature extractor
-        X = self.time_distributer(X)  # [batch_sizer=16, features=128]
+        X = self.time_distributed(X)  # [batch_sizer=16, features=128]
 
         # LSTM
         X, _ = self.LSTM(X)  # [16, 5, 64]
@@ -150,7 +145,7 @@ class FrankyNet(nn.Module):
         X = self.feature_extractor(X)  # [16, 1000]
         print("After CNN: ", X.shape)
 
-        # Reshape to 3D
+        # Reshape to 3D because LSTM må ha 3D ??
         X = X.reshape(
             (1, org_shape[0], 1000)).float()  # [16, 3*5, 384, 384]
         print("2. reshape: ", X.shape)
@@ -167,14 +162,9 @@ class FrankyNet(nn.Module):
         return airway, direction
 
 
-def create_neural_net(hidden_nodes, num_frames_in_stack, num_airway_segment_classes, num_direction_classes, frame_dimension, batch_size):
+def create_neural_net(hidden_nodes, num_features, num_LSTM_cells, num_frames_in_stack, num_airway_segment_classes, num_direction_classes, frame_dimension, batch_size):
     print("-- NEURAL NET --")
-    neural_net = NavigationNet(hidden_nodes, num_frames_in_stack, num_airway_segment_classes, num_direction_classes, frame_dimension, batch_size)
-
-    #neural_net.eval()
-    # Create dummy input for the model. It will be used to run the model inside export function.
-    #dummy_input = torch.randn(16, 5, 384, 384, 3)
-    # Call the export function
-    #torch.onnx.export(neural_net, (dummy_input,), 'model.onnx')
-
+    neural_net = NavigationNet(hidden_nodes=hidden_nodes, num_features=num_features, num_LSTM_cells=num_LSTM_cells,
+                               num_frames_in_stack=num_frames_in_stack, num_airway_segment_classes=num_airway_segment_classes,
+                               num_direction_classes=num_direction_classes, frame_dimension=frame_dimension, batch_size=batch_size)
     return neural_net

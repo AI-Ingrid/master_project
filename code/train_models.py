@@ -114,8 +114,9 @@ class Trainer:
                  num_airway_segment_classes: int,
                  num_direction_classes: int,
                  num_frames_in_stack: int,
-                 checkpoint_path: str,
-                 checkpoint_name: str,
+                 model_path: str,
+                 model_name: str,
+                 use_focal_loss: bool,
                  alpha: float,
                  gamma: float):
         """
@@ -140,11 +141,15 @@ class Trainer:
         self.num_direction_classes = num_direction_classes
         self.num_frames_in_stack = num_frames_in_stack
 
-        # Set loss criterion
         self.alpha = alpha
         self.gamma = gamma
-        #self.loss_criterion = focal_loss
-        self.loss_criterion = torch.nn.CrossEntropyLoss()
+
+        # Set loss criterion
+        if use_focal_loss:
+            self.loss_criterion = focal_loss
+
+        else:
+            self.loss_criterion = torch.nn.CrossEntropyLoss()
 
         # Transfer model to GPU VRAM, if possible.
         self.model = to_cuda(self.model)
@@ -175,8 +180,8 @@ class Trainer:
             direction_f1=collections.OrderedDict(),
             combined_f1=collections.OrderedDict(),
         )
-        self.checkpoint_dir = pathlib.Path(checkpoint_path + checkpoint_name)
-        self.tensorboard_writer = SummaryWriter(checkpoint_path + checkpoint_name)
+        self.model_dir = pathlib.Path(model_path + model_name)
+        self.tensorboard_writer = SummaryWriter(model_path + model_name)
 
     def validation_step(self):
         """
@@ -339,14 +344,14 @@ class Trainer:
             return validation_losses[-1] == min(validation_losses)
 
         if is_best_model():
-            self.checkpoint_dir.mkdir(exist_ok=True)
-            model_path = self.checkpoint_dir.joinpath("best_model.pt")
+            self.model_dir.mkdir(exist_ok=True)
+            model_path = self.model_dir.joinpath("best_model.pt")
             model = torch.jit.script(self.model)
             torch.jit.save(model, model_path)
 
     def load_model(self):
-        model_path = self.checkpoint_dir.joinpath("best_model.pt")
-        self.model = torch.jit.load(model_path, map_location=torch.device('cpu'))
+        model_path = self.model_dir.joinpath("best_model.pt")
+        self.model = torch.jit.load(model_path, map_location=torch.device('cuda'))
 
 
 def plot_loss(loss_dict: dict, label: str = None, color: str = None, npoints_to_average=1, plot_variance=True):
@@ -426,11 +431,11 @@ def create_plots(trainer: Trainer, path: str, name: str):
 def train_model(perform_training, batch_size, learning_rate, early_stop_count, epochs, num_validations,
                 neural_net, train_dataloader, validation_dataloader, fps, train_plot_path,
                 train_plot_name, num_airway_segment_classes, num_direction_classes, num_frames_in_stack,
-                checkpoint_path, checkpoint_name, alpha, gamma):
+                model_path, model_name, use_focal_loss, alpha, gamma):
     trainer = Trainer(
         batch_size, learning_rate, early_stop_count, epochs, num_validations, neural_net, train_dataloader,
         validation_dataloader, fps, num_airway_segment_classes, num_direction_classes, num_frames_in_stack,
-        checkpoint_path, checkpoint_name, alpha, gamma,
+        model_path, model_name, use_focal_loss, alpha, gamma,
     )
     if perform_training:
         print("-- TRAINING --")

@@ -1,43 +1,14 @@
 """
 File for setting all parameters for the master project. All changes and variables is set here
 """
-from datetime import datetime
-import os
 
 
 # Preprocessing
-fps = 10  # Sampling frequency for video to frames
-label_map_dict = {
-                1: [1, "Trachea"],
-                5: [2, "Right Main Bronchus"],
-                4: [3, "Left Main Bronchus"],
-                14: [4, "Right/Left Upper Lobe Bronchus"],
-                15: [5, "Right Truncus Intermedicus"],
-                12: [6, "Left Lower Lobe Bronchus"],
-                13: [7,  "Left Upper Lobe Bronchus"],
-                49: [8, "Right B1"],
-                50: [9,  "Right B2"],
-                48: [10,  "Right B3"],
-                2: [11,  "Right Middle Lobe Bronchus (parent for B4 og B5)"],
-                3: [12, "Right lower Lobe Bronchus (possible called right lower lobe bronchus (1))"],
-                11: [13, "Right Lower Lobe Bronchus (2)"],
-                39: [14, "Left Main Bronchus"],
-                38: [15, "Left B6"],
-                42: [16, "Left Upper Division Bronchus"],
-                43: [17, "Left Lingular Bronchus"],
-                7:  [18, "Right B4"],
-                6:  [19, "Right B5"],
-                91: [20, "Left B1+B2"],
-                90: [21, "Left B3"],
-                40: [22, "Left B4"],
-                41: [23, "Left B5"],
-                82: [24, "Left B8"],
-                37: [25, "Left B9"],
-                36: [26,  "Left B10"],
-            }
-convert_videos_to_frames = False  # Convert to frames or not
-label_the_frames = False  # Crop, scale and label the frames
-relabel_the_frames = False
+fps: 10  # Sampling frequency for video to frames
+
+convert_videos_to_frames: False  # Convert to frames or not
+label_the_frames: False  # Crop, scale and label the frames
+relabel_the_frames: False
 
 # Data Augmentation
 frame_dimension = (384, 384)  # Dimension of the scaled frames that will be sent into CNN
@@ -55,12 +26,12 @@ shuffle_dataset = True
 num_airway_segment_classes = 27
 num_direction_classes = 2
 hidden_nodes = 64
-num_features = 128
-num_LSTM_cells = 1
+num_features = 256
+num_LSTM_cells = 5
 
 # Training specifications
 perform_training = True
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # "0" or "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # "0" or "1"
 epochs = 2000
 batch_size = 16
 #accum_iter = 4  # batch accumulation parameter
@@ -103,4 +74,4 @@ confusion_metrics_name = f"{date_and_time}_confusion_metrics_{dataset_type}_{mod
 model_path = f"{root_directory_path}/models/"
 model_name = f"frames_{num_frames_in_stack}_slide_{slide_ratio_in_stack}_stacks_{num_stacks}_features_{num_features}_LSTM_cells_{num_LSTM_cells}_batchsize_{batch_size}_epochs_{epochs}_focal_loss_{use_focal_loss}"
 #model_name = f"{date_and_time}_{model_type}_fps_{fps}"
-#tensorboard --logdir="/cluster/home/ingrikol/master/models/frames_5_slide_10_stacks_1024_features_128_LSTM_cells_5_batchsize_16_epochs_2000_focal_loss_False"
+

@@ -159,6 +159,12 @@ def get_predictions(model, test_dataset, test_slide_ratio, num_frames, data_path
     return all_predictions, all_targets
 
 
+def convert_model_to_onnx(model, num_frames, dimension, model_name):
+    dummy_input = torch.randn(1, num_frames, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
+    input = to_cuda(dummy_input)
+    torch.onnx.export(model, (input,), f'{model_name}.onnx')
+
+
 def map_synthetic_frames_and_test_frames(data_path):
     # Get all test sequences
     sequence_list = list(os.listdir(f"{data_path}/datasets/test"))
@@ -185,30 +191,20 @@ def map_synthetic_frames_and_test_frames(data_path):
             frame_count += 1
             
 
-def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_classes, num_direction_classes, data_path):
+def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_classes, num_direction_classes, data_path, frame_dimension, convert_to_onnx, model_name):
     print("-- TESTING --")
-    #checkpoint_dir = pathlib.Path(f"/cluster/home/ingrikol/master/checkpoints/baseline/08-03-2023_15-57-36_baseline_fps_10")
-    #model_path = checkpoint_dir.joinpath("best_model.pth")
-    #model = torch.load(model_path)  # , map_location=torch.device('cpu'))
-    #model.eval()
-
+    # Load neural net model
     if load_best_model:
-        # Load neural net model
         trainer.load_model()
 
-        # Set to inference mode (freeze model)
+        # Set to inference mode -> freeze model
         trainer.model.eval()
 
-        # Create dummy input for the model. It will be used to run the model inside export function.
-        #dummy_input = torch.randn(1, 5, 3, 384, 384)  # Have to use batch size 1
+    # Convert model to ONNX
+    if convert_to_onnx:
+        convert_model_to_onnx(trainer.model, num_frames, frame_dimension, model_name)
 
-        #input = to_cuda(dummy_input)
-        # Call the export function
-        #torch.onnx.export(trainer.model, (input,), 'model2.onnx')
-
-
-
-    # Run predictions on testset
+    # Run predictions on test set
     predictions, targets = get_predictions(trainer.model, test_dataset, test_slide_ratio, num_frames, data_path)
 
     #map_synthetic_frames_and_test_frames(data_path)

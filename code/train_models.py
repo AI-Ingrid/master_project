@@ -65,18 +65,20 @@ def compute_f1_and_loss(
             f1_direction += f1_direction_metric(predictions_direction_decoded.cpu(), targets_direction_decoded.cpu())
 
             # Reshape 3D to 2D for the loss function
-            #shape_airway = (-1, num_airway_segment_classes)
-            #shape_direction = (-1, num_direction_classes)
+            shape_airway = (-1, num_airway_segment_classes)
+            shape_direction = (-1, num_direction_classes)
 
-            #Y_batch_airway = Y_batch_airway.reshape(shape_airway)
-            #Y_batch_direction = Y_batch_direction.reshape(shape_direction)
+            Y_batch_airway = Y_batch_airway.reshape(shape_airway)
+            Y_batch_direction = Y_batch_direction.reshape(shape_direction)
 
-            #predictions_airway = predictions_airway.reshape(shape_airway)
-            #predictions_direction = predictions_direction.reshape(shape_direction)
+            predictions_airway = predictions_airway.reshape(shape_airway)
+            predictions_direction = predictions_direction.reshape(shape_direction)
 
             # Compute Loss
-            loss_airway += loss_criterion(predictions_airway.cpu(), Y_batch_airway.float().cpu(), num_airway_segment_classes, alpha, gamma)
-            loss_direction += loss_criterion(predictions_direction.cpu(), Y_batch_direction.float().cpu(), num_direction_classes, alpha, gamma)
+            #loss_airway += loss_criterion(predictions_airway.cpu(), Y_batch_airway.float().cpu(), num_airway_segment_classes, alpha, gamma) # Focal Loss
+            loss_airway += loss_criterion(predictions_airway.cpu(), Y_batch_airway.float().cpu())
+            #loss_direction += loss_criterion(predictions_direction.cpu(), Y_batch_direction.float().cpu(), num_direction_classes, alpha, gamma) # Focal Loss
+            loss_direction += loss_criterion(predictions_direction.cpu(), Y_batch_direction.float().cpu())
 
             batch_size += 1
 
@@ -141,8 +143,8 @@ class Trainer:
         # Set loss criterion
         self.alpha = alpha
         self.gamma = gamma
-        self.loss_criterion = focal_loss
-        #self.loss_criterion = torch.nn.CrossEntropyLoss()
+        #self.loss_criterion = focal_loss
+        self.loss_criterion = torch.nn.CrossEntropyLoss()
 
         # Transfer model to GPU VRAM, if possible.
         self.model = to_cuda(self.model)
@@ -269,17 +271,19 @@ class Trainer:
         predictions = self.model(X_batch)
 
         # Reshape 3D to 2D for the loss function
-        #shape_airway = (self.batch_size * self.num_frames_in_stack, self.num_airway_segment_classes)
-        #shape_direction = (self.batch_size * self.num_frames_in_stack, self.num_direction_classes)
+        shape_airway = (self.batch_size * self.num_frames_in_stack, self.num_airway_segment_classes)
+        shape_direction = (self.batch_size * self.num_frames_in_stack, self.num_direction_classes)
 
-        #Y_batch_airway = Y_batch_airway.reshape(shape_airway)
-        #Y_batch_direction = Y_batch_direction.reshape(shape_direction)
-        #predictions_airway = predictions[0].reshape(shape_airway)
-        #predictions_direction = predictions[1].reshape(shape_direction)
+        Y_batch_airway = Y_batch_airway.reshape(shape_airway)
+        Y_batch_direction = Y_batch_direction.reshape(shape_direction)
+        predictions_airway = predictions[0].reshape(shape_airway)
+        predictions_direction = predictions[1].reshape(shape_direction)
 
         # Calculate loss for airway segment and direction separately
-        airway_loss = self.loss_criterion(predictions[0], Y_batch_airway, self.num_airway_segment_classes, self.alpha, self.gamma)
-        direction_loss = self.loss_criterion(predictions[1], Y_batch_direction, self.num_direction_classes, self.alpha, self.gamma)
+        #airway_loss = self.loss_criterion(predictions[0], Y_batch_airway, self.num_airway_segment_classes, self.alpha, self.gamma) # Focal Loss
+        airway_loss = self.loss_criterion(predictions_airway, Y_batch_airway)
+        #direction_loss = self.loss_criterion(predictions[1], Y_batch_direction, self.num_direction_classes, self.alpha, self.gamma) #F Focal Loss
+        direction_loss = self.loss_criterion(predictions_direction, Y_batch_direction)
 
         # Compute combined loss
         combined_loss = compute_combined_loss(airway_loss, direction_loss)
@@ -336,12 +340,13 @@ class Trainer:
 
         if is_best_model():
             self.checkpoint_dir.mkdir(exist_ok=True)
-            model_path = self.checkpoint_dir.joinpath("best_model.pth")
-            torch.save(self.model, model_path)
+            model_path = self.checkpoint_dir.joinpath("best_model.pt")
+            model = torch.jit.script(self.model)
+            torch.jit.save(model, model_path)
 
     def load_model(self):
-        model_path = self.checkpoint_dir.joinpath("best_model.pth")
-        self.model = torch.load(model_path, map_location=torch.device('cpu'))
+        model_path = self.checkpoint_dir.joinpath("best_model.pt")
+        self.model = torch.jit.load(model_path, map_location=torch.device('cpu'))
 
 
 def plot_loss(loss_dict: dict, label: str = None, color: str = None, npoints_to_average=1, plot_variance=True):

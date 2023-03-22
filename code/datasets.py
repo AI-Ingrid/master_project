@@ -26,6 +26,7 @@ def separate_dataframe(video_df, transform, num_airway_segment_classes, num_dire
 
     # Convert to Tensor
     frames = torch.tensor(new_frames)  # [num_frames=30, width=384, height=384, channels=3]
+    frames = torch.moveaxis(frames, 3, 1)
 
     # One hot encode labels
     airway_labels = torch.nn.functional.one_hot(torch.tensor(airway_labels.values),
@@ -164,7 +165,9 @@ def create_datasets_and_dataloaders(validation_split, test_split, raw_dataset_pa
                                          split_the_data=split_the_data)
 
     # Set up transforming details for the dataset to output
-    transform = transforms.Compose([transforms.ToPILImage(), transforms.Resize(frame_dimension)])
+    transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize(frame_dimension)])
 
     # Create Train Dataset and DataLoader
     train_dataset = RandomGeneratorDataset(file_list=train_csv_files, num_stacks=num_stacks,

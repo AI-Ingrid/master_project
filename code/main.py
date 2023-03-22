@@ -34,7 +34,8 @@ def main():
     # Create neural network
     neural_net = create_neural_net(hidden_nodes=hidden_nodes, num_frames_in_stack=num_frames_in_stack,
                                    num_airway_segment_classes=num_airway_segment_classes,
-                                   num_direction_classes=num_direction_classes)
+                                   num_direction_classes=num_direction_classes, frame_dimension=frame_dimension,
+                                   batch_size=batch_size)
 
     # Train model
     trainer = train_model(perform_training=perform_training, batch_size=batch_size, learning_rate=learning_rate,
@@ -47,7 +48,7 @@ def main():
 
     # Test model
     test_model(trainer=trainer, test_dataset=test_dataset, test_slide_ratio=test_slide_ratio_in_stack, num_frames=num_frames_in_stack,
-               num_airway_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes)
+               num_airway_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes, data_path=data_path)
 
 
 if __name__ == "__main__":

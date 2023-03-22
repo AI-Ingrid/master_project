@@ -1,4 +1,5 @@
 import copy
+import pandas as pd
 import torch
 from utils.data_utils import plot_dataset_distribution
 from sklearn.metrics import f1_score, precision_recall_fscore_support
@@ -7,6 +8,9 @@ import numpy as np
 import pathlib
 import scipy
 from utils.neural_nets_utils import to_cuda
+import os
+import cv2
+from tqdm import tqdm
 
 
 def get_data_distribution(train, validation, test):
@@ -59,12 +63,18 @@ def get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
     print("Average Recall Direction: ", average_recall_direction)
 
 
-def get_predictions(model, test_dataset, test_slide_ratio, num_frames):
+def get_predictions(model, test_dataset, test_slide_ratio, num_frames, data_path):
+    # pred: [(airway, direction), (airway, direction), .......]
+    # targets: [(airway, direction), (airway, direction), .......]
     all_predictions = []
     all_targets = []
 
+    sequence_list = list(os.listdir(f"{data_path}/datasets/test"))
+    test_sequences = [file.split(".")[0] for file in sequence_list if (file.lower().endswith('.csv'))]
+    video_counter = 0
+
     # Go through every video in test data set
-    for video_frames, (airway_labels, direction_labels) in test_dataset:
+    for video_frames, (airway_labels, direction_labels) in tqdm(test_dataset):
         airway_predictions = []
         direction_predictions = []
 
@@ -92,33 +102,44 @@ def get_predictions(model, test_dataset, test_slide_ratio, num_frames):
             stack_5D = to_cuda(stack_5D)
 
             # Send stack into the model and get predictions
-            predictions_airway, predictions_direction = model(stack_5D)  # (1, 10, 27), (1, 10, 2)
+            predictions_airway, predictions_direction = model(stack_5D)  # (1, 5, 27), (1, 5, 2)
 
             # Remove batch dim
-            predictions_airway = torch.squeeze(predictions_airway)  # (10, 27)
-            predictions_direction = torch.squeeze(predictions_direction)  # (10, 2)
+            predictions_airway = torch.squeeze(predictions_airway)  # (5, 27)
+            predictions_direction = torch.squeeze(predictions_direction)  # (5, 2)
 
             # Softmax
-            probabilities_airway = torch.softmax(predictions_airway, dim=1).detach().cpu()    # (10, 27)
-            probabilities_direction = torch.softmax(predictions_direction, dim=1).detach().cpu()   # (10, 2)
+            probabilities_airway = torch.softmax(predictions_airway, dim=1).detach().cpu()    # (5, 27)
+            probabilities_direction = torch.softmax(predictions_direction, dim=1).detach().cpu()   # (5, 2)
 
             # Free memory
             del predictions_airway, predictions_direction
 
             # Argmax
-            predictions_airway = np.argmax(probabilities_airway, axis=1)  # (10)
-            predictions_direction = np.argmax(probabilities_direction, axis=1)  # (10)
+            predictions_airway = np.argmax(probabilities_airway, axis=1)  # (5)
+            predictions_direction = np.argmax(probabilities_direction, axis=1)  # (5)
 
             # Interpolate - Resize
-            full_stack_predictions_airway = scipy.ndimage.zoom(predictions_airway, zoom=5, order=0)
-            full_stack_predictions_direction = scipy.ndimage.zoom(predictions_direction, zoom=5, order=0)
+            full_stack_predictions_airway = scipy.ndimage.zoom(predictions_airway, zoom=(test_slide_ratio), order=0)  # [50]
+            full_stack_predictions_direction = scipy.ndimage.zoom(predictions_direction, zoom=(test_slide_ratio), order=0)  # [50]
 
             # Store stack predictions in the current video predictions list
-            airway_predictions += full_stack_predictions_airway.tolist()  #[stack1, stack2, stack3, stack4 ... stack8]
-            direction_predictions += full_stack_predictions_direction.tolist()  #[stack1, stack2, stack3, stack4 ... stack8]
+            airway_predictions += full_stack_predictions_airway.tolist()  # airway_predictions: [[stack1], [stack2], [stack3], [stack4] ... [stack16]]
+            direction_predictions += full_stack_predictions_direction.tolist()  # direction_predictions [[stack1], [stack2], [stack3], [stack4] ... [stack16]]
 
         # Store the entire video predictions (without extended frames) in a list with all videos
         all_predictions.append((airway_predictions[:len(video_frames)], direction_predictions[:len(video_frames)]))
+
+        # Store the entire video predictions (without extended frames) in a csv file
+        frame_names = [f"frame_{i}.png" for i in range(len(airway_labels))]
+
+        temp_prediction_dict = {"Frame": frame_names, "Airway Prediction": airway_predictions[:len(video_frames)], "Direction Predictions": direction_predictions[:len(video_frames)]}
+        all_predictions_df = pd.DataFrame(temp_prediction_dict)
+
+        directory_path = pathlib.Path(f"{data_path}/test_set_predictions")
+        directory_path.mkdir(exist_ok=True)
+
+        all_predictions_df.to_csv(f"{directory_path}/Predictions_Patient_001_{test_sequences[video_counter]}.csv", index=False, mode='a')
 
         # Argmax on one hot encoded ground truth values
         airway_labels = np.argmax(airway_labels, axis=1)
@@ -127,10 +148,44 @@ def get_predictions(model, test_dataset, test_slide_ratio, num_frames):
         # Store all targets in a all targets list
         all_targets.append((airway_labels.tolist(), direction_labels.tolist()))
 
+        # Store the entire video labels in a csv file
+        temp_target_dict = {"Frame": frame_names, "Airway Label": airway_labels, "Direction Label": direction_labels}
+        all_predictions_df = pd.DataFrame(temp_target_dict)
+        all_predictions_df.to_csv(f"{directory_path}/Labels_Patient_001_{test_sequences[video_counter]}.csv", index=False, mode='a')
+
+        # Increase video counter
+        video_counter += 1
+
     return all_predictions, all_targets
 
 
-def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_classes, num_direction_classes):
+def map_synthetic_frames_and_test_frames(data_path):
+    # Get all test sequences
+    sequence_list = list(os.listdir(f"{data_path}/datasets/test"))
+    test_sequences = [file.split(".")[0] for file in sequence_list if (file.lower().endswith('.csv'))]
+
+    # Create directory for the test frames
+    test_directory_path = pathlib.Path(f"{data_path}/test_frames")
+    test_directory_path.mkdir(exist_ok=True)
+
+    # Go through every test sequence to store test frames
+    for test_sequence in test_sequences:
+        # Get frames in current sequence
+        test_sequence_df = pd.read_csv(f"{data_path}/datasets/test/{test_sequence}.csv")
+
+        # Create directory for the sequence
+        sequence_directory_path = pathlib.Path(f"{test_directory_path}/{test_sequence}")
+        sequence_directory_path.mkdir(exist_ok=True)
+
+        frame_count = 0
+        # Read every frame and store them in new directory with new name
+        for frame_path in test_sequence_df["Frame"]:
+            frame = cv2.imread(frame_path)
+            cv2.imwrite(f"{sequence_directory_path}/frame_{frame_count}.png", frame)
+            frame_count += 1
+            
+
+def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_classes, num_direction_classes, data_path):
     print("-- TESTING --")
     #checkpoint_dir = pathlib.Path(f"/cluster/home/ingrikol/master/checkpoints/baseline/08-03-2023_15-57-36_baseline_fps_10")
     #model_path = checkpoint_dir.joinpath("best_model.pth")
@@ -144,8 +199,19 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_c
         # Set to inference mode (freeze model)
         trainer.model.eval()
 
+        # Create dummy input for the model. It will be used to run the model inside export function.
+        #dummy_input = torch.randn(1, 5, 3, 384, 384)  # Have to use batch size 1
+
+        #input = to_cuda(dummy_input)
+        # Call the export function
+        #torch.onnx.export(trainer.model, (input,), 'model2.onnx')
+
+
+
     # Run predictions on testset
-    predictions, targets = get_predictions(trainer.model, test_dataset, test_slide_ratio, num_frames)
+    predictions, targets = get_predictions(trainer.model, test_dataset, test_slide_ratio, num_frames, data_path)
+
+    #map_synthetic_frames_and_test_frames(data_path)
 
     # Get F1 Macro Score, Precision and Recall
     get_metrics(predictions, targets, num_airway_classes, num_direction_classes)

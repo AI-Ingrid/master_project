@@ -46,18 +46,18 @@ test_split = 0.1  # Fraction that split data into test data
 validation_split = 0.2  # Fraction that split data into validation data
 num_frames_in_stack = 5  # Num frames in a stack that gets sent into RNN
 slide_ratio_in_stack = 10  # Ratio of slide between frames in a stack
-num_stacks = 1024  # Must be divisible by batch size
+num_stacks = 128  # Must be divisible by batch size
 split_the_data = False  # Split videos into train, test or validation
 shuffle_dataset = True
 
 # Neural nets details
 num_airway_segment_classes = 27
 num_direction_classes = 2
-hidden_nodes = 128
+hidden_nodes = 64
 
 # Training specifications
 perform_training = True
-epochs = 1000
+epochs = 1500
 batch_size = 16
 accum_iter = 4  # batch accumulation parameter
 learning_rate = 1e-3
@@ -94,5 +94,6 @@ train_plot_name = f"{date_and_time}_{dataset_type}_{model_type}_fps_{fps}"
 test_plot_path = f"{root_directory_path}/plots/testing/"
 confusion_metrics_name = f"{date_and_time}_confusion_metrics_{dataset_type}_{model_type}_fps_{fps}"
 checkpoint_path = f"{root_directory_path}/checkpoints/"
-checkpoint_name = f"{model_type}_fps_{fps}_epochs_{epochs}_focal_loss"
+checkpoint_name = f"{model_type}_frames_{num_frames_in_stack}_slide_{slide_ratio_in_stack}_epochs_{epochs}"
 #checkpoint_name = f"{date_and_time}_{model_type}_fps_{fps}"
+

@@ -11,6 +11,7 @@ from utils.neural_nets_utils import to_cuda
 import os
 import cv2
 from tqdm import tqdm
+from torch import nn
 
 
 def get_data_distribution(train, validation, test):
@@ -159,10 +160,27 @@ def get_predictions(model, test_dataset, test_slide_ratio, num_frames, data_path
     return all_predictions, all_targets
 
 
-def convert_model_to_onnx(model, num_frames, dimension, model_name):
+def convert_model_to_onnx(model, num_frames, dimension, model_name, model_path):
+    class LastPred(nn.Module):
+        def __init__(self):
+            super().__init__()
+        def forward(self, X):  #[16, 5, 27/2]
+            #X = X[:, -1, :]  # [16, 27/2]
+            #X = torch.mean(X, dim=1)
+            #X = torch.softmax(X, dim=-1)
+            X = nn.Softmax(X, dim=-1)
+            return X
+
+    last_pred = LastPred()
+
+    complete_model = nn.Sequential(
+        model,
+        last_pred
+    )
+    # TODO: prøve med -1
     dummy_input = torch.randn(1, num_frames, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
     input = to_cuda(dummy_input)
-    torch.onnx.export(model, (input,), f'{model_name}.onnx')
+    torch.onnx.export(complete_model, (input,), f'{model_path}/onnx/{model_name}.onnx')
 
 
 def map_synthetic_frames_and_test_frames(data_path):
@@ -191,7 +209,7 @@ def map_synthetic_frames_and_test_frames(data_path):
             frame_count += 1
             
 
-def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_classes, num_direction_classes, data_path, frame_dimension, convert_to_onnx, model_name):
+def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_classes, num_direction_classes, data_path, frame_dimension, convert_to_onnx, model_name, model_path):
     print("-- TESTING --")
     # Load neural net model
     if load_best_model:
@@ -202,7 +220,7 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_c
 
     # Convert model to ONNX
     if convert_to_onnx:
-        convert_model_to_onnx(trainer.model, num_frames, frame_dimension, model_name)
+        convert_model_to_onnx(trainer.model, num_frames, frame_dimension, model_name, model_path)
 
     # Run predictions on test set
     predictions, targets = get_predictions(trainer.model, test_dataset, test_slide_ratio, num_frames, data_path)

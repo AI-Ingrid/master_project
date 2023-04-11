@@ -21,7 +21,7 @@ def focal_loss(predictions, labels, num_classes, alpha, gamma):
     # Labels = [batch_size * num_frames = 160, num_classes = 27 eller 2]
     cross_entropy_loss = torch.nn.functional.cross_entropy(predictions, labels, reduction='none')  # important to add reduction='none' to keep per-batch-item loss
     pt = torch.exp(-cross_entropy_loss)
-    loss = (alpha * (1 - pt) ** gamma * cross_entropy_loss).mean()
+    loss = (alpha * (1 - pt) ** gamma * cross_entropy_loss).mean() # Skal vi ha med mean her? MEan over batch , men vi tar mean til slutt?
     return loss
 
 

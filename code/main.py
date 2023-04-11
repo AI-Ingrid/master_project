@@ -40,14 +40,14 @@ def main():
                           validation_dataloader=validation_dataloader, fps=fps, train_plot_path=train_plot_path,
                           train_plot_name=train_plot_name, num_airway_segment_classes=num_airway_segment_classes,
                           num_direction_classes=num_direction_classes, num_frames_in_stack=num_frames_in_stack,
-                          model_path=model_path, model_name=model_name, use_focal_loss=use_focal_loss, alpha=alpha,
-                          gamma=gamma)
+                          model_path=model_path, model_name=model_name, use_focal_loss=use_focal_loss, alpha_airway=alpha_airway,
+                          alpha_direction=alpha_direction, gamma=gamma)
 
     # Test model
     test_model(trainer=trainer, test_dataset=test_dataset, test_slide_ratio=test_slide_ratio_in_stack,
                num_frames=num_frames_in_stack, num_airway_classes=num_airway_segment_classes,
                num_direction_classes=num_direction_classes, data_path=data_path, frame_dimension=frame_dimension,
-               convert_to_onnx=convert_to_onnx, model_name=model_name)
+               convert_to_onnx=convert_to_onnx, model_name=model_name, model_path=model_path)
 
 
 if __name__ == "__main__":

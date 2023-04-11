@@ -62,6 +62,12 @@ class NavigationNet(nn.Module):
 
         # Handle training for certain layers
         for param in self.feature_extractor.parameters():
+            param.requires_grad = False
+        for param in self.feature_extractor.layer3.parameters():
+            param.requires_grad = True
+        for param in self.feature_extractor.layer4.parameters():
+            param.requires_grad = True
+        for param in self.feature_extractor.fc.parameters():
             param.requires_grad = True
         for param in self.LSTM.parameters():
             param.requires_grad = True

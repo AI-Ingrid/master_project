@@ -7,8 +7,9 @@ import matplotlib.pyplot as plt
 import torchmetrics.classification as tm
 import torch
 from tqdm import tqdm
-from utils.neural_nets_utils import to_cuda, focal_loss
+from utils.neural_nets_utils import to_cuda
 from torch.utils.tensorboard import SummaryWriter
+
 
 def compute_f1_and_loss(
         dataloader: torch.utils.data.DataLoader,
@@ -16,8 +17,12 @@ def compute_f1_and_loss(
         loss_criterion: torch.nn.modules.loss._Loss,
         num_airway_segment_classes: int,
         num_direction_classes: int,
-        alpha: float,
-        gamma: float):
+        alpha_airway: torch.Tensor,
+        alpha_direction: torch.Tensor,
+        gamma: float,
+        use_focal_loss: bool,
+        num_frames_in_stack: int,
+        batch_size: int):
     """
     Computes the average loss and the accuracy over the whole dataset
     in dataloader.
@@ -32,7 +37,7 @@ def compute_f1_and_loss(
     loss_direction = 0
     f1_airway = 0
     f1_direction = 0
-    batch_size = 0
+    counter = 0
 
     # Handle unbalanced dataset with the use of F1 Macro Score
     f1_airway_segment_metric = tm.F1Score(average='macro', task='multilabel', num_classes=num_airway_segment_classes)
@@ -40,10 +45,12 @@ def compute_f1_and_loss(
 
     with torch.no_grad():
         for (X_batch, (Y_batch_airway, Y_batch_direction)) in dataloader:
-            # Transfer images/labels to GPU VRAM, if possible
-            X_batch = to_cuda(X_batch)
 
-            # Forward pass the images through the model
+            X_batch = to_cuda(X_batch)
+            Y_batch_airway = to_cuda(Y_batch_airway)
+            Y_batch_direction = to_cuda(Y_batch_direction)
+
+            # Perform the forward pass
             predictions = model(X_batch)
             predictions_airway = predictions[0]
             predictions_direction = predictions[1]
@@ -65,27 +72,44 @@ def compute_f1_and_loss(
             f1_direction += f1_direction_metric(predictions_direction_decoded.cpu(), targets_direction_decoded.cpu())
 
             # Reshape 3D to 2D for the loss function
-            shape_airway = (-1, num_airway_segment_classes)
-            shape_direction = (-1, num_direction_classes)
+            shape_airway = (batch_size * num_frames_in_stack, num_airway_segment_classes)
+            shape_direction = (batch_size * num_frames_in_stack, num_direction_classes)
 
             Y_batch_airway = Y_batch_airway.reshape(shape_airway)
             Y_batch_direction = Y_batch_direction.reshape(shape_direction)
-
             predictions_airway = predictions_airway.reshape(shape_airway)
             predictions_direction = predictions_direction.reshape(shape_direction)
 
             # Compute Loss
-            #loss_airway += loss_criterion(predictions_airway.cpu(), Y_batch_airway.float().cpu(), num_airway_segment_classes, alpha, gamma) # Focal Loss
-            loss_airway += loss_criterion(predictions_airway.cpu(), Y_batch_airway.float().cpu())
-            #loss_direction += loss_criterion(predictions_direction.cpu(), Y_batch_direction.float().cpu(), num_direction_classes, alpha, gamma) # Focal Loss
-            loss_direction += loss_criterion(predictions_direction.cpu(), Y_batch_direction.float().cpu())
+            cross_entropy_loss_airway = loss_criterion(predictions_airway.cpu(), Y_batch_airway.float().cpu(), reduction='none')
+            cross_entropy_loss_direction = loss_criterion(predictions_direction.cpu(), Y_batch_direction.float().cpu(), reduction='none')
 
-            batch_size += 1
+            cross_entropy_loss_airway = cross_entropy_loss_airway.mean()
+            cross_entropy_loss_direction = cross_entropy_loss_direction.mean()
 
-    loss_airway = loss_airway / batch_size
-    loss_direction = loss_direction / batch_size
-    f1_airway = f1_airway / batch_size
-    f1_direction = f1_direction / batch_size
+            # Calculate focal loss
+            if use_focal_loss:
+                pt_airway = torch.exp(-cross_entropy_loss_airway)
+                pt_direction = torch.exp(-cross_entropy_loss_direction)
+
+                focal_loss_airway = (alpha_airway * (1 - pt_airway) ** gamma * cross_entropy_loss_airway).mean()
+                focal_loss_direction = (alpha_direction * (1 - pt_direction) ** gamma * cross_entropy_loss_direction).mean()
+
+                # Summarize over all batches
+                loss_airway += focal_loss_airway
+                loss_direction += focal_loss_direction
+
+            else:
+                # Summarize over all batches
+                loss_airway += cross_entropy_loss_airway
+                loss_direction += cross_entropy_loss_direction
+
+            counter += 1
+
+    loss_airway = loss_airway / counter
+    loss_direction = loss_direction / counter
+    f1_airway = f1_airway / counter
+    f1_direction = f1_direction / counter
 
     return loss_airway, loss_direction, f1_airway, f1_direction
 
@@ -117,7 +141,8 @@ class Trainer:
                  model_path: str,
                  model_name: str,
                  use_focal_loss: bool,
-                 alpha: float,
+                 alpha_airway: torch.Tensor,
+                 alpha_direction: torch.Tensor,
                  gamma: float):
         """
             Initialize our trainer class.
@@ -141,15 +166,13 @@ class Trainer:
         self.num_direction_classes = num_direction_classes
         self.num_frames_in_stack = num_frames_in_stack
 
-        self.alpha = alpha
+        self.use_focal_loss = use_focal_loss
+        self.alpha_airway = to_cuda(alpha_airway)
+        self.alpha_direction = to_cuda(alpha_direction)
         self.gamma = gamma
 
         # Set loss criterion
-        if use_focal_loss:
-            self.loss_criterion = focal_loss
-
-        else:
-            self.loss_criterion = torch.nn.CrossEntropyLoss()
+        self.loss_criterion = torch.nn.functional.cross_entropy
 
         # Transfer model to GPU VRAM, if possible.
         self.model = to_cuda(self.model)
@@ -193,7 +216,8 @@ class Trainer:
         train_airway_loss, train_direction_loss, train_airway_f1, train_direction_f1 = compute_f1_and_loss(
                                                                                         self.train_dataloader, self.model,
                                                                                         self.loss_criterion, self.num_airway_segment_classes,
-                                                                                        self.num_direction_classes, self.alpha, self.gamma)
+                                                                                        self.num_direction_classes, self.alpha_airway, self.alpha_direction,
+                                                                                        self.gamma, self.use_focal_loss, self.num_frames_in_stack, self.batch_size)
         # Store training accuracy in dictionary
         self.train_history["airway_f1"][self.global_step] = train_airway_f1
         self.train_history["direction_f1"][self.global_step] = train_direction_f1
@@ -212,8 +236,8 @@ class Trainer:
                                                                                 self.validation_dataloader,
                                                                                 self.model, self.loss_criterion,
                                                                                 self.num_airway_segment_classes,
-                                                                                self.num_direction_classes, self.alpha,
-                                                                                self.gamma)
+                                                                                self.num_direction_classes, self.alpha_airway,
+                                                                                self.alpha_direction, self.gamma, self.use_focal_loss, self.num_frames_in_stack, self.batch_size)
         val_combined_loss = compute_combined_loss(val_airway_loss, val_direction_loss)
 
         # Store validation loss and f1in dictionary
@@ -274,6 +298,8 @@ class Trainer:
 
         # Perform the forward pass
         predictions = self.model(X_batch)
+        predictions_airway = predictions[0]
+        predictions_direction = predictions[1]
 
         # Reshape 3D to 2D for the loss function
         shape_airway = (self.batch_size * self.num_frames_in_stack, self.num_airway_segment_classes)
@@ -281,14 +307,26 @@ class Trainer:
 
         Y_batch_airway = Y_batch_airway.reshape(shape_airway)
         Y_batch_direction = Y_batch_direction.reshape(shape_direction)
-        predictions_airway = predictions[0].reshape(shape_airway)
-        predictions_direction = predictions[1].reshape(shape_direction)
+        predictions_airway = predictions_airway.reshape(shape_airway)  # [80, 27]
+        predictions_direction = predictions_direction.reshape(shape_direction)  # [80, 2]
 
         # Calculate loss for airway segment and direction separately
-        #airway_loss = self.loss_criterion(predictions[0], Y_batch_airway, self.num_airway_segment_classes, self.alpha, self.gamma) # Focal Loss
-        airway_loss = self.loss_criterion(predictions_airway, Y_batch_airway)
-        #direction_loss = self.loss_criterion(predictions[1], Y_batch_direction, self.num_direction_classes, self.alpha, self.gamma) #F Focal Loss
-        direction_loss = self.loss_criterion(predictions_direction, Y_batch_direction)
+        airway_loss = self.loss_criterion(predictions_airway, Y_batch_airway, reduction="none")  # [16 * 5 = 80 ] --> 3.37
+        direction_loss = self.loss_criterion(predictions_direction, Y_batch_direction, reduction='none') # [16 * 5 = 80] --> 0.6999
+
+        airway_loss = airway_loss.mean()
+        direction_loss = direction_loss.mean()
+
+        # Calculate focal loss
+        if self.use_focal_loss:
+            pt_airway = torch.exp(-airway_loss)   # 16 * 5 = 80 eller bare ett tall?
+            pt_direction = torch.exp(-direction_loss)  # 16 * 5 = 80 eller bare et tall altså etter mean??
+
+            focal_loss_airway = (self.alpha_airway * (1 - pt_airway) ** self.gamma * airway_loss)
+            focal_loss_direction = (self.alpha_direction * (1 - pt_direction) ** self.gamma * direction_loss)
+
+            airway_loss = focal_loss_airway.mean()
+            direction_loss = focal_loss_direction.mean()
 
         # Compute combined loss
         combined_loss = compute_combined_loss(airway_loss, direction_loss)
@@ -431,11 +469,11 @@ def create_plots(trainer: Trainer, path: str, name: str):
 def train_model(perform_training, batch_size, learning_rate, early_stop_count, epochs, num_validations,
                 neural_net, train_dataloader, validation_dataloader, fps, train_plot_path,
                 train_plot_name, num_airway_segment_classes, num_direction_classes, num_frames_in_stack,
-                model_path, model_name, use_focal_loss, alpha, gamma):
+                model_path, model_name, use_focal_loss, alpha_airway, alpha_direction, gamma):
     trainer = Trainer(
         batch_size, learning_rate, early_stop_count, epochs, num_validations, neural_net, train_dataloader,
         validation_dataloader, fps, num_airway_segment_classes, num_direction_classes, num_frames_in_stack,
-        model_path, model_name, use_focal_loss, alpha, gamma,
+        model_path, model_name, use_focal_loss, alpha_airway, alpha_direction, gamma,
     )
     if perform_training:
         print("-- TRAINING --")

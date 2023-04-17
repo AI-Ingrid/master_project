@@ -5,7 +5,6 @@ from datetime import datetime
 import os
 import torch
 
-
 # Preprocessing
 fps = 10  # Sampling frequency for video to frames
 label_map_dict = {
@@ -47,23 +46,23 @@ frame_dimension = (384, 384)  # Dimension of the scaled frames that will be sent
 dataset_type = 'synthetic'  # {'synthetic' 'human'}
 test_split = 0.1  # Fraction that split data into test data
 validation_split = 0.2  # Fraction that split data into validation data
-num_frames_in_stack = 5  # Num frames in a stack that gets sent into RNN
-slide_ratio_in_stack = 10  # Ratio of slide between frames in a stack
+num_frames_in_stack = 10  # Num frames in a stack that gets sent into RNN
+slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack
 split_the_data = False  # Split videos into train, test or validation
-shuffle_dataset = True
+shuffle_dataset = False
 
 # Neural nets details
 num_airway_segment_classes = 27
 num_direction_classes = 2
-hidden_nodes = 64
+hidden_nodes = 64  #TODO: prøve 2/3 input + output
 num_features = 512
-num_LSTM_cells = 1
+num_LSTM_cells = 3
 
 # Training specifications
-perform_training = True
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # "0" or "1"
-epochs = 2000
-batch_size = 8
+perform_training = False
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # "0" or "1"
+epochs = 1 #2000
+batch_size = 1
 #accum_iter = 4  # batch accumulation parameter
 learning_rate = 1e-3
 early_stop_count = 20
@@ -71,11 +70,11 @@ num_stacks = 1024  # Must be divisible by batch size
 num_validations = 100  # Num times for validation our model during training
 alpha_airway = torch.Tensor([0.2, 0.5, 0.5, 1, 1, 1, 1, 1, 1, 1,
                              1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                             1, 1, 1, 1, 1, 1, 1]).cpu()
-alpha_direction = torch.Tensor([1, 1]).cpu()
+                             1, 1, 1, 1, 1, 1, 1])
+alpha_direction = torch.Tensor([1, 1])
 gamma = 2.0
-test_slide_ratio_in_stack = 10
-use_focal_loss = True
+test_slide_ratio_in_stack = 5
+use_focal_loss = False
 
 # Testing trained model
 load_best_model = True
@@ -101,8 +100,8 @@ train_plot_name = f"{date_and_time}_{dataset_type}_{model_type}_fps_{fps}"
 test_plot_path = f"{root_directory_path}/plots/testing/"
 confusion_metrics_name = f"{date_and_time}_confusion_metrics_{dataset_type}_{model_type}_fps_{fps}"
 model_path = f"{root_directory_path}/models/"
-model_name = f"baseline_frames_{num_frames_in_stack}_slide_{slide_ratio_in_stack}_stacks_{num_stacks}_features_{num_features}_LSTM_cells_{num_LSTM_cells}_batchsize_{batch_size}_epochs_{epochs}_focal_loss_{use_focal_loss}"
-#model_name = f"{date_and_time}_{model_type}_fps_{fps}"
+model_name = f"alpha_frames_{num_frames_in_stack}_slide_{slide_ratio_in_stack}_stacks_{num_stacks}_features_{num_features}_LSTM_cells_{num_LSTM_cells}_batchsize_{batch_size}_epochs_{epochs}_focal_loss_{use_focal_loss}"
+test_plot_path = f"{root_directory_path}/plots/testing/{model_name}"
 
 #tensorboard --logdir="/cluster/home/ingrikol/master/models/frames_5_slide_10_stacks_1024_features_512_LSTM_cells_1_batchsize_16_epochs_2000_focal_loss_False"
 #scp ingrikol@idun-login2.hpc.ntnu.no:"/cluster/home/ingrikol/master/models/onnx/frames_5_slide_10_stacks_1024_features_128_LSTM_cells_1_batchsize_16_epochs_2000_focal_loss_False.onnx" ~

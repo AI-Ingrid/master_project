@@ -6,6 +6,36 @@ import torch
 from tqdm import tqdm
 import numpy as np
 import re
+import csv
+
+
+def find_num_stacks(csv_file, stack_size, slide_ratio):
+    with open(csv_file) as csv_file:
+        csv_reader = csv.reader(csv_file, delimiter=',')
+        num_frames = sum([1 for row in csv_reader])
+    num_left_over_frames = (stack_size * slide_ratio) - num_frames % (stack_size * slide_ratio)
+    num_stacks = (num_frames + num_left_over_frames) // (stack_size * slide_ratio)
+
+    return num_stacks - 1  # Take care of python starting at 0
+
+
+def create_stack_dict(file_list, stack_size, slide_ratio):
+        total_stacks = 0
+        index = 0
+        stack_dict = {}
+
+        for i in range(len(file_list)):
+            num_stacks_in_file = find_num_stacks(file_list[i], stack_size, slide_ratio)
+            total_stacks += num_stacks_in_file
+
+            for j in range(0, num_stacks_in_file):
+                stack_dict[index] = {
+                    "video_path": file_list[i],
+                    "local_stack_number": j
+                }
+                index += 1
+
+        return total_stacks, stack_dict
 
 
 def get_class_distribution_for_batch(y_batch, count):

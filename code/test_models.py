@@ -1,9 +1,8 @@
 import copy
 import pandas as pd
 import torch
-from utils.data_utils import plot_dataset_distribution
-from sklearn.metrics import f1_score, precision_recall_fscore_support
-from config import load_best_model, get_data_dist
+from sklearn.metrics import f1_score, precision_recall_fscore_support, confusion_matrix, ConfusionMatrixDisplay
+from config import load_best_model
 import numpy as np
 import pathlib
 import scipy
@@ -12,14 +11,8 @@ import os
 import cv2
 from tqdm import tqdm
 from torch import nn
-
-
-def get_data_distribution(train, validation, test):
-    if get_data_dist:
-        # Visualize data sets
-        plot_dataset_distribution(train, validation=None, test=None)
-        plot_dataset_distribution(train, validation=validation, test=None)
-        plot_dataset_distribution(train, validation=None, test=test)
+from utils.test_utils import SoftmaxLayer
+from matplotlib import pyplot as plt
 
 
 def get_metrics(predictions, targets, num_airway_classes, num_direction_classes):
@@ -64,7 +57,7 @@ def get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
     print("Average Recall Direction: ", average_recall_direction)
 
 
-def get_predictions(model, test_dataset, test_slide_ratio, num_frames, data_path):
+def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames, data_path):
     # pred: [(airway, direction), (airway, direction), .......]
     # targets: [(airway, direction), (airway, direction), .......]
     all_predictions = []
@@ -161,26 +154,58 @@ def get_predictions(model, test_dataset, test_slide_ratio, num_frames, data_path
 
 
 def convert_model_to_onnx(model, num_frames, dimension, model_name, model_path):
-    class LastPred(nn.Module):
+    """ Converts a trained model into an onnx model. """
+    # Set path for storing models as torch scripts
+    model_directory_path = pathlib.Path(model_path + model_name)
+
+    # Create a softmax layer that will be added at the end of the trained model
+    softmax_layer = SoftmaxLayer()
+
+    # Convert the SoftmaxLayer to  a torch script model
+    softmax_layer_torchscript = torch.jit.script(softmax_layer)
+    softmax_layer_path = model_directory_path.joinpath("softmax_layer.pt")
+
+    # Save SoftmaxLayer as a torch script model
+    torch.jit.save(softmax_layer_torchscript, softmax_layer_path)
+
+    # Load the torch script model SoftmaxLayer
+    softmax_layer = torch.jit.load(softmax_layer_path, map_location=torch.device('cuda'))
+
+    # Freeze the weights
+    softmax_layer.eval()
+
+    # Add the SoftmaxLayer to the trained model in a nn.Module
+    class ModelForOnnx(nn.Module):
         def __init__(self):
             super().__init__()
+            self.trained_model = model
+            self.softmax_layer = softmax_layer
+
         def forward(self, X):  #[16, 5, 27/2]
-            #X = X[:, -1, :]  # [16, 27/2]
-            #X = torch.mean(X, dim=1)
-            #X = torch.softmax(X, dim=-1)
-            X = nn.Softmax(X, dim=-1)
-            return X
+            airway, direction = self.trained_model(X)
+            airway = self.softmax_layer(airway)
+            direction = self.softmax_layer(direction)
+            return airway, direction
 
-    last_pred = LastPred()
+    # Convert the ModelForOnnx (nn.Module) to s torch script
+    model_for_onnx = ModelForOnnx()
+    model_for_onnx_torchscript = torch.jit.script(model_for_onnx)
+    model_for_onnx_path = model_directory_path.joinpath("model_for_onnx.pt")
 
-    complete_model = nn.Sequential(
-        model,
-        last_pred
-    )
+    # Save LastPred as a torchscript model
+    torch.jit.save(model_for_onnx_torchscript, model_for_onnx_path)
+
+    # Load the torchscript model LastPred
+    model_for_onnx = torch.jit.load(model_for_onnx_path, map_location=torch.device('cuda'))
+
+    # Freeze the weights
+    model_for_onnx.eval()
+
     # TODO: prøve med -1
     dummy_input = torch.randn(1, num_frames, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
-    input = to_cuda(dummy_input)
-    torch.onnx.export(complete_model, (input,), f'{model_path}/onnx/{model_name}.onnx')
+    dummy_input_cuda = to_cuda(dummy_input)
+    torch.onnx.export(model_for_onnx, (dummy_input_cuda,), f'{model_path}/onnx/{model_name}.onnx')
+    print("Model saved and converted to onnx")
 
 
 def map_synthetic_frames_and_test_frames(data_path):
@@ -207,9 +232,54 @@ def map_synthetic_frames_and_test_frames(data_path):
             frame = cv2.imread(frame_path)
             cv2.imwrite(f"{sequence_directory_path}/frame_{frame_count}.png", frame)
             frame_count += 1
-            
 
-def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_classes, num_direction_classes, data_path, frame_dimension, convert_to_onnx, model_name, model_path):
+
+def plot_confusion_metrics(predictions, targets, confusion_metrics_plot_path, num_airway_classes, num_direction_classes):
+    airway_plot_path = pathlib.Path(confusion_metrics_plot_path + "/airway")
+    direction_plot_path = pathlib.Path(confusion_metrics_plot_path + "/direction")
+
+    # Predictions og targets er ikke onehote encoda
+    # Predictions består av en liste med 9 elementer, hvert element er en video
+    # Hvert element har 2 lister, en for airway og en for direction for videoen
+    # Samme gjelder targets
+    # Så predictions[0] = video 0 og matcher med targets[0]
+    all_predictions_airway = []
+    all_predictions_direction = []
+    all_targets_airway = []
+    all_targets_direction = []
+
+    for i in range(len(predictions)):
+        video_predictions = predictions[i]
+        video_targets = targets[i]
+        all_predictions_airway += video_predictions[0]
+        all_targets_airway += video_targets[0]
+        all_predictions_direction += video_predictions[1]
+        all_targets_direction += video_targets[1]
+
+    confusion_metrics_airway = confusion_matrix(all_targets_airway, all_predictions_airway, labels=num_airway_classes)
+    confusion_metrics_direction = confusion_matrix(all_targets_direction, all_predictions_direction, labels=num_direction_classes)
+
+    confusion_metrics_airway = ConfusionMatrixDisplay(confusion_matrix=confusion_metrics_airway,
+                                                      display_labels=num_airway_classes)
+    fig, ax = plt.subplots(figsize=(20, 20))
+
+    plt.title(f"Confusion Metrics for Airway Segment Classes")
+    confusion_metrics_airway.plot(ax=ax)
+    plt.savefig(airway_plot_path.joinpath(f"_confusion_matrix.png"))
+    plt.show()
+
+    confusion_metrics_direction = ConfusionMatrixDisplay(confusion_matrix=confusion_metrics_direction,
+                                                         display_labels=num_direction_classes)
+    fig, ax = plt.subplots(figsize=(20, 20))
+
+    plt.title(f"Confusion Metrics for Direction Classes")
+    confusion_metrics_direction.plot(ax=ax)
+    plt.savefig(direction_plot_path.joinpath(f"_confusion_matrix.png"))
+    plt.show()
+
+
+def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_classes, num_direction_classes, data_path,
+               frame_dimension, convert_to_onnx, model_name, model_path, test_plot_path):
     print("-- TESTING --")
     # Load neural net model
     if load_best_model:
@@ -223,9 +293,13 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_c
         convert_model_to_onnx(trainer.model, num_frames, frame_dimension, model_name, model_path)
 
     # Run predictions on test set
-    predictions, targets = get_predictions(trainer.model, test_dataset, test_slide_ratio, num_frames, data_path)
+    predictions, targets = get_test_set_predictions(trainer.model, test_dataset, test_slide_ratio, num_frames, data_path)
 
     #map_synthetic_frames_and_test_frames(data_path)
 
     # Get F1 Macro Score, Precision and Recall
     get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
+
+    # Plot Confusion Metrics
+    plot_confusion_metrics(predictions=predictions, targets=targets, confusion_metrics_plot_path=test_plot_path,
+                           num_airway_classes=num_airway_classes, num_direction_classes=num_direction_classes)

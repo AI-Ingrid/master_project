@@ -1,11 +1,13 @@
 import copy
 
 from preprocess import *
+from utils.data_utils import create_stack_dict
 from torch.utils.data import Dataset, DataLoader
 from pathlib import PurePath
 import torch
 import cv2
 from torchvision import transforms
+import csv
 
 
 def separate_dataframe(video_df, transform, num_airway_segment_classes, num_direction_classes):
@@ -74,6 +76,50 @@ class RandomGeneratorDataset(Dataset):
         # Separate the stack's data into frames, airway labels and direction labels
         frames, airway_labels, direction_labels = separate_dataframe(stack_df, self.transform, self.num_airway_classes, self.num_direction_classes)
 
+        return frames, [airway_labels, direction_labels]
+
+
+class StackGeneratorDataset(Dataset):
+    """ Dataset class for the lung airway net that generates
+       chronological stack sequences for videos consisting of 'num_frames_in_stack' frames with
+       a 'slide_ratio_in_stack' ratio between each frame for a random video """
+
+    def __init__(self, file_list, stack_size, slide_ratio, num_airway_classes, num_direction_classes, transform):
+        self.file_list = file_list
+        self.stack_size = stack_size
+        self.slide_ratio = slide_ratio
+        self.num_airway_classes = num_airway_classes
+        self.num_direction_classes = num_direction_classes
+        self.transform = transform
+        self.total_stacks, self.stack_dict = create_stack_dict(self.file_list, self.stack_size, self.slide_ratio)
+
+    def __len__(self):
+        return self.total_stacks
+
+    def __getitem__(self, item):
+        # Fetch video and the stack number for that video
+        video_path = self.stack_dict[item]["video_path"]
+        local_stack_number = self.stack_dict[item]["local_stack_number"]
+
+        # Read the video file
+        video_df = pd.read_csv(video_path)
+
+        # Get the stack indices
+        start_index = local_stack_number * (self.stack_size * self.slide_ratio)
+        end_index = start_index + (self.stack_size * self.slide_ratio) - 1
+
+        # Handle stack edge case to make sure every stack has length num_frames
+        num_left_over_frames = (self.stack_size * self.slide_ratio) - len(video_df) % (self.stack_size * self.slide_ratio)
+        last_frame = video_df.tail(1)
+
+        for i in range(num_left_over_frames):
+            video_df = video_df.append(last_frame, ignore_index=True)
+
+        stack_df = video_df[start_index: end_index: self.slide_ratio]
+
+        # Separate the stack's data into frames, airway labels and direction labels
+        frames, airway_labels, direction_labels = separate_dataframe(stack_df, self.transform, self.num_airway_classes,
+                                                                     self.num_direction_classes)
         return frames, [airway_labels, direction_labels]
 
 
@@ -170,20 +216,29 @@ def create_datasets_and_dataloaders(validation_split, test_split, raw_dataset_pa
         transforms.Resize(frame_dimension)])
 
     # Create Train Dataset and DataLoader
-    train_dataset = RandomGeneratorDataset(file_list=train_csv_files, num_stacks=num_stacks,
-                                           num_frames=num_frames_in_stack, slide_ratio=slide_ratio_in_stack,
-                                           num_airway_classes=num_airway_segment_classes,
-                                           num_direction_classes=num_direction_classes, transform=transform)
+    #train_dataset = RandomGeneratorDataset(file_list=train_csv_files, num_stacks=num_stacks,
+                                           #num_frames=num_frames_in_stack, slide_ratio=slide_ratio_in_stack,
+                                           #num_airway_classes=num_airway_segment_classes,
+                                           #num_direction_classes=num_direction_classes, transform=transform)
 
-    train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=shuffle_dataset, num_workers=4, pin_memory=True, drop_last=True)
+    train_dataset = StackGeneratorDataset(file_list=train_csv_files, stack_size=num_frames_in_stack, slide_ratio=slide_ratio_in_stack,
+                                          num_airway_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes,
+                                          transform=transform)
+
+    train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=shuffle_dataset, drop_last=True)
+
 
     # Create Validation DataSet and DataLoader
-    validation_dataset = RandomGeneratorDataset(file_list=validation_csv_files, num_stacks=num_stacks,
-                                          num_frames=num_frames_in_stack, slide_ratio=slide_ratio_in_stack,
-                                          num_airway_classes=num_airway_segment_classes,
-                                          num_direction_classes=num_direction_classes, transform=transform)
+    #validation_dataset = RandomGeneratorDataset(file_list=validation_csv_files, num_stacks=num_stacks,
+                                          #num_frames=num_frames_in_stack, slide_ratio=slide_ratio_in_stack,
+                                          #num_airway_classes=num_airway_segment_classes,
+                                          #num_direction_classes=num_direction_classes, transform=transform)
 
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=batch_size, shuffle=shuffle_dataset, num_workers=4, pin_memory=True, drop_last=True)
+    validation_dataset = StackGeneratorDataset(file_list=validation_csv_files, stack_size=num_frames_in_stack, slide_ratio=slide_ratio_in_stack,
+                                        num_airway_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes,
+                                        transform=transform)
+
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=batch_size, shuffle=shuffle_dataset, drop_last=True)
 
     # Create Test Dataset
     test_dataset = TestDataSet(file_list=test_csv_files, transform=transform,

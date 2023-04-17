@@ -4,40 +4,20 @@ from utils.neural_nets_utils import to_cuda, decode_one_hot_encoded_labels
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, f1_score
 import numpy as np
 from utils.data_utils import get_label_name
+import torch
+from torch import nn
 
 
-def plot_confusion_metrics(test_set, trainer, path, get_confusion_metrics, network_type):
-    if get_confusion_metrics:
-        all_predicted_labels = []
-        all_original_labels = []
+class SoftmaxLayer(nn.Module):
+    def __init__(self):
+        super().__init__()
 
-        plot_path = Path(path)
-        plot_path.mkdir(exist_ok=True)
+    def forward(self, X):
+        X = X[:, -1, :]  # [16, 5, 27/2] -> [16, 27/2]
+        X = torch.mean(X, dim=1)
+        X = torch.softmax(X, dim=-1)
+        return X
 
-        for X_batch, Y_batch in test_set:
-            X_batch_cuda = to_cuda(X_batch)
-
-            # Perform the forward pass
-            predictions = trainer.model(X_batch_cuda)
-
-            predicted_labels = decode_one_hot_encoded_labels(predictions)
-            original_labels = decode_one_hot_encoded_labels(Y_batch)
-
-            all_predicted_labels += predicted_labels
-            all_original_labels += original_labels
-
-        if network_type == 'direction_det_net':
-            classes = list(range(0, 2))
-        else:
-            classes = list(range(1, 28))
-
-        cm = confusion_matrix(all_original_labels, all_predicted_labels, labels=classes)
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=classes)
-        fig, ax = plt.subplots(figsize=(20, 20))
-        plt.title(f"Confusion Metrics for {network_type}")
-        disp.plot(ax=ax)
-        plt.savefig(plot_path.joinpath(f"confusion_matrix.png"))
-        plt.show()
 
 
 def plot_predictions_test_set(test_set, trainer, path, network_type, get_testset_pred):

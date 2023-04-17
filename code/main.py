@@ -8,7 +8,6 @@ from test_models import test_model
 
 def main():
     """ The function running the entire pipeline of the project """
-
     # Preprocess the data from videos to frames with labels
     preprocess(convert_videos_to_frames=convert_videos_to_frames,
                label_the_frames=label_the_frames, videos_path=videos_path,
@@ -47,7 +46,7 @@ def main():
     test_model(trainer=trainer, test_dataset=test_dataset, test_slide_ratio=test_slide_ratio_in_stack,
                num_frames=num_frames_in_stack, num_airway_classes=num_airway_segment_classes,
                num_direction_classes=num_direction_classes, data_path=data_path, frame_dimension=frame_dimension,
-               convert_to_onnx=convert_to_onnx, model_name=model_name, model_path=model_path)
+               convert_to_onnx=convert_to_onnx, model_name=model_name, model_path=model_path, test_plot_path=test_plot_path)
 
 
 if __name__ == "__main__":

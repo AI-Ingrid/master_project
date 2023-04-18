@@ -54,20 +54,20 @@ shuffle_dataset = False
 # Neural nets details
 num_airway_segment_classes = 27
 num_direction_classes = 2
-hidden_nodes = 64  #TODO: prøve 2/3 input + output
+hidden_nodes = 400  #TODO: prøve 2/3 input + output
 num_features = 512
 num_LSTM_cells = 3
 
 # Training specifications
-perform_training = False
+perform_training = True
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # "0" or "1"
-epochs = 1 #2000
+epochs = 2000 #2000
 batch_size = 1
 #accum_iter = 4  # batch accumulation parameter
 learning_rate = 1e-3
-early_stop_count = 20
+early_stop_count = 30
 num_stacks = 1024  # Must be divisible by batch size
-num_validations = 100  # Num times for validation our model during training
+num_validations = 100  # Num times for validation our model during training TODO brukes egt denne mer?
 alpha_airway = torch.Tensor([0.2, 0.5, 0.5, 1, 1, 1, 1, 1, 1, 1,
                              1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                              1, 1, 1, 1, 1, 1, 1])
@@ -100,7 +100,7 @@ train_plot_name = f"{date_and_time}_{dataset_type}_{model_type}_fps_{fps}"
 test_plot_path = f"{root_directory_path}/plots/testing/"
 confusion_metrics_name = f"{date_and_time}_confusion_metrics_{dataset_type}_{model_type}_fps_{fps}"
 model_path = f"{root_directory_path}/models/"
-model_name = f"alpha_frames_{num_frames_in_stack}_slide_{slide_ratio_in_stack}_stacks_{num_stacks}_features_{num_features}_LSTM_cells_{num_LSTM_cells}_batchsize_{batch_size}_epochs_{epochs}_focal_loss_{use_focal_loss}"
+model_name = f"alpha_frames_{num_frames_in_stack}_slide_{slide_ratio_in_stack}_features_{num_features}_hidden_nodes_{hidden_nodes}_LSTM_cells_{num_LSTM_cells}_batch_size_{batch_size}_epochs_{epochs}_focal_loss_{use_focal_loss}"
 test_plot_path = f"{root_directory_path}/plots/testing/{model_name}"
 
 #tensorboard --logdir="/cluster/home/ingrikol/master/models/frames_5_slide_10_stacks_1024_features_512_LSTM_cells_1_batchsize_16_epochs_2000_focal_loss_False"

@@ -235,8 +235,10 @@ def map_synthetic_frames_and_test_frames(data_path):
 
 
 def plot_confusion_metrics(predictions, targets, confusion_metrics_plot_path, num_airway_classes, num_direction_classes):
-    airway_plot_path = pathlib.Path(confusion_metrics_plot_path + "/airway")
-    direction_plot_path = pathlib.Path(confusion_metrics_plot_path + "/direction")
+    plot_directory_path = pathlib.Path(confusion_metrics_plot_path)
+    plot_directory_path.mkdir(exist_ok=True)
+    airway_plot_path = pathlib.Path(confusion_metrics_plot_path + "/airway_confusion_matrix.png")
+    direction_plot_path = pathlib.Path(confusion_metrics_plot_path + "/direction_confusion_matrix.png")
 
     # Predictions og targets er ikke onehote encoda
     # Predictions består av en liste med 9 elementer, hvert element er en video
@@ -256,25 +258,25 @@ def plot_confusion_metrics(predictions, targets, confusion_metrics_plot_path, nu
         all_predictions_direction += video_predictions[1]
         all_targets_direction += video_targets[1]
 
-    confusion_metrics_airway = confusion_matrix(all_targets_airway, all_predictions_airway, labels=num_airway_classes)
-    confusion_metrics_direction = confusion_matrix(all_targets_direction, all_predictions_direction, labels=num_direction_classes)
+    confusion_metrics_airway = confusion_matrix(all_targets_airway, all_predictions_airway, labels=list(range(1, num_airway_classes + 1)))
+    confusion_metrics_direction = confusion_matrix(all_targets_direction, all_predictions_direction, labels=list(range(0, num_direction_classes)))
 
     confusion_metrics_airway = ConfusionMatrixDisplay(confusion_matrix=confusion_metrics_airway,
-                                                      display_labels=num_airway_classes)
+                                                      display_labels=list(range(1, num_airway_classes + 1)))
     fig, ax = plt.subplots(figsize=(20, 20))
 
     plt.title(f"Confusion Metrics for Airway Segment Classes")
     confusion_metrics_airway.plot(ax=ax)
-    plt.savefig(airway_plot_path.joinpath(f"_confusion_matrix.png"))
+    plt.savefig(airway_plot_path)
     plt.show()
 
     confusion_metrics_direction = ConfusionMatrixDisplay(confusion_matrix=confusion_metrics_direction,
-                                                         display_labels=num_direction_classes)
+                                                         display_labels=list(range(0, num_direction_classes)))
     fig, ax = plt.subplots(figsize=(20, 20))
 
     plt.title(f"Confusion Metrics for Direction Classes")
     confusion_metrics_direction.plot(ax=ax)
-    plt.savefig(direction_plot_path.joinpath(f"_confusion_matrix.png"))
+    plt.savefig(direction_plot_path)
     plt.show()
 
 

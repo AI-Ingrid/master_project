@@ -1,5 +1,5 @@
 #!/bin/sh
-#SBATCH --job-name="training_5_LSTM"
+#SBATCH --job-name="Alpha"
 #SBATCH --partition=GPUQ
 #SBATCH --account=ie-idi
 #SBATCH --time=30:00:00
@@ -8,7 +8,7 @@
 #SBATCH --mail-user=ingrikol@stud.ntnu.no
 #SBATCH --mail-type=ALL
 #SBATCH --mem=128000
-#SBATCH --output=outputs/job.out
+#SBATCH --output=outputs/alpha.out
 
 WORKDIR=${SLURM_SUBMIT_DIR}
 cd ${WORKDIR}

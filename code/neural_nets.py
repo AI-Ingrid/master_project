@@ -44,20 +44,20 @@ class NavigationNet(nn.Module):
         self.time_distributed = TimeDistributed(self.feature_extractor, self.shape)
 
         # LSTM
-        self.LSTM = nn.LSTM(input_size=self.num_features, hidden_size=self.hidden_nodes, num_layers=self.num_LSTM_cells, batch_first=True)
+        #self.LSTM = nn.LSTM(input_size=self.num_features, hidden_size=self.hidden_nodes, num_layers=self.num_LSTM_cells, batch_first=True)
 
         # Classifier Direction
         self.direction_classifier = nn.Sequential(
-            nn.Linear(self.hidden_nodes, 32),
-            #nn.Linear(self.num_features, 32), # For baseline without LSTM
+            #nn.Linear(self.hidden_nodes, 32),
+            nn.Linear(self.num_features, 32), # For baseline without LSTM
             nn.ReLU(),
             nn.Linear(32, self.num_direction_classes),
         )
 
         # Classifier Airway
         self.airway_classifier = nn.Sequential(
-            nn.Linear(self.hidden_nodes, 32),
-            #nn.Linear(self.num_features, 32),  # For baseline without LSTM
+            #nn.Linear(self.hidden_nodes, 32),
+            nn.Linear(self.num_features, 32),  # For baseline without LSTM
             nn.ReLU(),
             nn.Linear(32, self.num_airway_segment_classes),
         )
@@ -71,8 +71,8 @@ class NavigationNet(nn.Module):
             param.requires_grad = True
         for param in self.feature_extractor.fc.parameters():
             param.requires_grad = True
-        for param in self.LSTM.parameters():
-            param.requires_grad = True
+        #for param in self.LSTM.parameters():
+            #param.requires_grad = True
         for param in self.airway_classifier.parameters():
             param.requires_grad = True
         for param in self.direction_classifier.parameters():
@@ -83,7 +83,7 @@ class NavigationNet(nn.Module):
         X = self.time_distributed(X)  # [batch_sizer=16, features=128]
 
         # LSTM
-        X, _ = self.LSTM(X)  # [16, 5, 64]
+        #X, _ = self.LSTM(X)  # [16, 5, 64]
 
         # Classifiers (Direction and Airway)
         airway = self.airway_classifier(X)          # [batch_size=16, num_frames_in_stack=5, 27]

@@ -390,8 +390,7 @@ class Trainer:
     def load_model(self):
         model_path = self.model_dir.joinpath("best_model.pt")
         # TODO: dette blir torch script model og ikke torch model
-        # Sjekk om jeg får endra på torch script nettverksakritekturen selvom jeg loader den opp for hvis den fortsatt klikker av endringer så er den ikke fryst og da kan jeg likse godt bruke torch.load og torch.save
-        self.model = torch.jit.load(model_path, map_location=torch.device('cuda'))
+        self.model = torch.jit.load(model_path, map_location=torch.device('cpu'))
 
 
 def plot_loss(loss_dict: dict, label: str = None, color: str = None, npoints_to_average=1, plot_variance=True):

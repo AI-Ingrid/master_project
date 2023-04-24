@@ -59,9 +59,9 @@ num_features = 256
 num_LSTM_cells = "None"
 
 # Training specifications
-perform_training = True
+perform_training = False
 #os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # "0" or "1"
-epochs = 5000
+epochs = 1
 batch_size = 8
 #accum_iter = 4  # batch accumulation parameter
 learning_rate = 1e-3

@@ -214,10 +214,11 @@ class Trainer:
         self.model.eval()
         # Compute train loss and accuracy
         train_airway_loss, train_direction_loss, train_airway_f1, train_direction_f1 = compute_f1_and_loss(
-                                                                                        self.train_dataloader, self.model,
-                                                                                        self.loss_criterion, self.num_airway_segment_classes,
-                                                                                        self.num_direction_classes, self.alpha_airway, self.alpha_direction,
-                                                                                        self.gamma, self.use_focal_loss, self.num_frames_in_stack, self.batch_size)
+            dataloader=self.train_dataloader, model=self.model, loss_criterion=self.loss_criterion,
+            num_airway_segment_classes=self.num_airway_segment_classes, num_direction_classes=self.num_direction_classes,
+            alpha_airway=self.alpha_airway, alpha_direction=self.alpha_direction, gamma=self.gamma,
+            use_focal_loss=self.use_focal_loss, num_frames_in_stack=self.num_frames_in_stack, batch_size=self.batch_size)
+
         # Store training accuracy in dictionary
         self.train_history["airway_f1"][self.global_step] = train_airway_f1
         self.train_history["direction_f1"][self.global_step] = train_direction_f1
@@ -233,11 +234,11 @@ class Trainer:
 
         # Compute validation loss and accuracy
         val_airway_loss, val_direction_loss, val_airway_f1, val_direction_f1 = compute_f1_and_loss(
-                                                                                self.validation_dataloader,
-                                                                                self.model, self.loss_criterion,
-                                                                                self.num_airway_segment_classes,
-                                                                                self.num_direction_classes, self.alpha_airway,
-                                                                                self.alpha_direction, self.gamma, self.use_focal_loss, self.num_frames_in_stack, self.batch_size)
+            dataloader=self.validation_dataloader,model=self.model, loss_criterion=self.loss_criterion,
+            num_airway_segment_classes=self.num_airway_segment_classes, num_direction_classes=self.num_direction_classes,
+            alpha_airway=self.alpha_airway, alpha_direction=self.alpha_direction, gamma=self.gamma,
+            use_focal_loss=self.use_focal_loss, num_frames_in_stack=self.num_frames_in_stack, batch_size=self.batch_size)
+
         val_combined_loss = compute_combined_loss(val_airway_loss, val_direction_loss)
 
         # Store validation loss and f1in dictionary
@@ -390,7 +391,7 @@ class Trainer:
     def load_model(self):
         model_path = self.model_dir.joinpath("best_model.pt")
         # TODO: dette blir torch script model og ikke torch model
-        self.model = torch.jit.load(model_path, map_location=torch.device('cpu'))
+        self.model = torch.jit.load(model_path, map_location=torch.device('cuda'))
 
 
 def plot_loss(loss_dict: dict, label: str = None, color: str = None, npoints_to_average=1, plot_variance=True):

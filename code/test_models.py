@@ -28,7 +28,7 @@ def get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
         f1_score_direction += f1_score(targets[index][1], video[1], average='macro')
 
         temp_precision_airway, temp_recall_airway, _, _ = precision_recall_fscore_support(
-                                                targets[index][0], video[0], average="weighted", labels=list(range(num_airway_classes)))
+                                                targets[index][0], video[0], average="weighted", labels=list(range(0, num_airway_classes+1)))
         temp_precision_direction, temp_recall_direction, _, _ = precision_recall_fscore_support(
                                                 targets[index][1], video[1], average="macro", labels=list(range(num_direction_classes)))
 
@@ -204,7 +204,7 @@ def convert_model_to_onnx(model, num_frames, dimension, model_name, model_path):
     # TODO: prøve med -1
     dummy_input = torch.randn(1, num_frames, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
     dummy_input_cuda = to_cuda(dummy_input)
-    torch.onnx.export(model_for_onnx, (dummy_input_cuda,), f'{model_path}/onnx/{model_name}.onnx')
+    torch.onnx.export(model_for_onnx, (dummy_input_cuda,), f'{model_path}onnx/{model_name}.onnx')
     print("Model saved and converted to onnx")
 
 

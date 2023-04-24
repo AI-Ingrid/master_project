@@ -1,7 +1,6 @@
 import torch
 import torchvision.models
 from torch import nn
-from pytorch_pretrained_vit import ViT
 
 
 class TimeDistributed(nn.Module):
@@ -39,7 +38,7 @@ class NavigationNet(nn.Module):
         self.shape = tuple((batch_size, num_frames_in_stack, 3, frame_dimension[0], frame_dimension[1]))
 
         # Feature extractor: Resnet18 or ViT
-        self.feature_extractor = torchvision.models.resnet18('ResNet18_Weights')
+        self.feature_extractor = torchvision.models.resnet18('IMAGENET1K_V1')
         self.feature_extractor.fc = nn.Linear(512, self.num_features, bias=True)
         self.time_distributed = TimeDistributed(self.feature_extractor, self.shape)
 

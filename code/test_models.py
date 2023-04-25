@@ -28,9 +28,9 @@ def get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
         f1_score_direction += f1_score(targets[index][1], video[1], average='macro')
 
         temp_precision_airway, temp_recall_airway, _, _ = precision_recall_fscore_support(
-                                                targets[index][0], video[0], average="weighted", labels=list(range(0, num_airway_classes+1)))
+                                                targets[index][0], video[0], average="weighted", labels=list(range(1, num_airway_classes+1)))
         temp_precision_direction, temp_recall_direction, _, _ = precision_recall_fscore_support(
-                                                targets[index][1], video[1], average="macro", labels=list(range(num_direction_classes)))
+                                                targets[index][1], video[1], average="macro", labels=list(range(0, num_direction_classes)))
 
         # Summarize the metrics one by one
         precision_airway += temp_precision_airway
@@ -201,7 +201,6 @@ def convert_model_to_onnx(model, num_frames, dimension, model_name, model_path):
     # Freeze the weights
     model_for_onnx.eval()
 
-    # TODO: prøve med -1
     dummy_input = torch.randn(1, num_frames, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
     dummy_input_cuda = to_cuda(dummy_input)
     torch.onnx.export(model_for_onnx, (dummy_input_cuda,), f'{model_path}onnx/{model_name}.onnx')
@@ -296,8 +295,6 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_c
 
     # Run predictions on test set
     predictions, targets = get_test_set_predictions(trainer.model, test_dataset, test_slide_ratio, num_frames, data_path)
-
-    #map_synthetic_frames_and_test_frames(data_path)
 
     # Get F1 Macro Score, Precision and Recall
     get_metrics(predictions, targets, num_airway_classes, num_direction_classes)

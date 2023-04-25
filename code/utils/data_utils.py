@@ -23,6 +23,7 @@ def create_stack_dict(file_list, stack_size, slide_ratio):
         total_stacks = 0
         index = 0
         stack_dict = {}
+        overlap_dict = {}
 
         for i in range(len(file_list)):
             num_stacks_in_file = find_num_stacks(file_list[i], stack_size, slide_ratio)
@@ -35,7 +36,7 @@ def create_stack_dict(file_list, stack_size, slide_ratio):
                 }
                 index += 1
 
-        return total_stacks, stack_dict
+        return total_stacks, stack_dict, overlap_dict
 
 
 def get_class_distribution_for_batch(y_batch, count):

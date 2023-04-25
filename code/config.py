@@ -2,7 +2,6 @@
 File for setting all parameters for the master project. All changes and variables is set here
 """
 from datetime import datetime
-import os
 import torch
 
 # Preprocessing
@@ -40,46 +39,44 @@ label_the_frames = False  # Crop, scale and label the frames
 relabel_the_frames = False
 
 # Data Augmentation
-frame_dimension = (384, 384)  # Dimension of the scaled frames that will be sent into CNN
+frame_dimension = (256, 256)  # Dimension of the scaled frames that will be sent into CNN
 
 # Datasets
 dataset_type = 'synthetic'  # {'synthetic' 'human'}
 test_split = 0.1  # Fraction that split data into test data
 validation_split = 0.2  # Fraction that split data into validation data
-num_frames_in_stack = 5  # Num frames in a stack that gets sent into RNN
-slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack
 split_the_data = False  # Split videos into train, test or validation
-shuffle_dataset = True
+shuffle_dataset = True  # Only true when using the baseline model
+num_frames_in_stack = 10  # Num frames in a stack that gets sent into RNN
+slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack
 
 # Neural nets details
 num_airway_segment_classes = 27
 num_direction_classes = 2
-hidden_nodes = 128
-num_features = 256
-num_LSTM_cells = "None"
+num_features_extracted = 256
+num_memory_nodes = 128  # Max = 512
+use_stateful_LSTM = False
 
 # Training specifications
-perform_training = False
-#os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # "0" or "1"
+perform_training = True
+classify_direction = False
 epochs = 1
-batch_size = 8
-#accum_iter = 4  # batch accumulation parameter
+batch_size = 4
 learning_rate = 1e-3
 early_stop_count = 10
 num_stacks = 1024  # Must be divisible by batch size
-num_validations = 1000  # Num times for validation our model during training TODO brukes egt denne mer?
+num_validations = 100  # Num times for validation our model during training TODO brukes egt denne mer?
 alpha_airway = torch.Tensor([0.2, 0.5, 0.5, 1, 1, 1, 1, 1, 1, 1,
                              1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                              1, 1, 1, 1, 1, 1, 1])
 alpha_direction = torch.Tensor([1, 1])
 gamma = 2.0
-test_slide_ratio_in_stack = slide_ratio_in_stack
 use_focal_loss = True
 
 # Testing trained model
 load_best_model = True
-get_data_dist = False
 convert_to_onnx = True
+test_slide_ratio_in_stack = slide_ratio_in_stack
 
 # Data paths
 root_directory_path = "/cluster/home/ingrikol/master"
@@ -93,14 +90,14 @@ relabeled_csv_videos_path = f"{data_path}/relabeled_videos_csv/"
 dataset_path = f"{data_path}/datasets/"
 
 # Training and Testing paths
-model_type = "baseline"
+model_type = "baseline"  # {'baseline', 'alpha', 'beta', 'gamma'}
 date_and_time = datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
 train_plot_path = f"{root_directory_path}/plots/training/"
 train_plot_name = f"{date_and_time}_{dataset_type}_{model_type}_fps_{fps}"
 test_plot_path = f"{root_directory_path}/plots/testing/"
 confusion_metrics_name = f"{date_and_time}_confusion_metrics_{dataset_type}_{model_type}_fps_{fps}"
 model_path = f"{root_directory_path}/models/"
-model_name = f"baseline_frames_{num_frames_in_stack}_slide_{slide_ratio_in_stack}_features_{num_features}_hidden_nodes_{hidden_nodes}_LSTM_cells_{num_LSTM_cells}_batch_size_{batch_size}_epochs_{epochs}_focal_loss_{use_focal_loss}"
+model_name = f"{model_type}_frames_{num_frames_in_stack}_slide_{slide_ratio_in_stack}_features_{num_features_extracted}_hidden_size_{num_memory_nodes}_batch_size_{batch_size}_epochs_{epochs}_focal_loss_{use_focal_loss}"
 test_plot_path = f"{root_directory_path}/plots/testing/{model_name}"
 
 #tensorboard --logdir="/cluster/home/ingrikol/master/models/frames_5_slide_10_stacks_1024_features_512_LSTM_cells_1_batchsize_16_epochs_2000_focal_loss_False"

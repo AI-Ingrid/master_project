@@ -27,20 +27,20 @@ def main():
     )
 
     # Create neural network
-    neural_net = create_neural_net(hidden_nodes=hidden_nodes, num_features=num_features, num_LSTM_cells=num_LSTM_cells, num_frames_in_stack=num_frames_in_stack,
+    neural_net = create_neural_net(num_memory_nodes=num_memory_nodes, num_features_extracted=num_features_extracted,
+                                   model_type=model_type, num_frames_in_stack=num_frames_in_stack,
                                    num_airway_segment_classes=num_airway_segment_classes,
                                    num_direction_classes=num_direction_classes, frame_dimension=frame_dimension,
-                                   batch_size=batch_size)
+                                   batch_size=batch_size, use_stateful_LSTM=use_stateful_LSTM)
 
     # Train model
     trainer = train_model(perform_training=perform_training, batch_size=batch_size, learning_rate=learning_rate,
                           early_stop_count=early_stop_count, epochs=epochs, num_validations=num_validations,
                           neural_net=neural_net, train_dataloader=train_dataloader,
-                          validation_dataloader=validation_dataloader, fps=fps, train_plot_path=train_plot_path,
-                          train_plot_name=train_plot_name, num_airway_segment_classes=num_airway_segment_classes,
+                          validation_dataloader=validation_dataloader, fps=fps, num_airway_segment_classes=num_airway_segment_classes,
                           num_direction_classes=num_direction_classes, num_frames_in_stack=num_frames_in_stack,
                           model_path=model_path, model_name=model_name, use_focal_loss=use_focal_loss, alpha_airway=alpha_airway,
-                          alpha_direction=alpha_direction, gamma=gamma)
+                          alpha_direction=alpha_direction, gamma=gamma, model_type=model_type)
 
     # Test model
     test_model(trainer=trainer, test_dataset=test_dataset, test_slide_ratio=test_slide_ratio_in_stack,

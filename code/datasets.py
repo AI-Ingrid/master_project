@@ -91,7 +91,7 @@ class StackGeneratorDataset(Dataset):
         self.num_airway_classes = num_airway_classes
         self.num_direction_classes = num_direction_classes
         self.transform = transform
-        self.total_stacks, self.stack_dict = create_stack_dict(self.file_list, self.stack_size, self.slide_ratio)
+        self.total_stacks, self.stack_dict, self.overlap_dict = create_stack_dict(self.file_list, self.stack_size, self.slide_ratio)
 
     def __len__(self):
         return self.total_stacks
@@ -226,7 +226,6 @@ def create_datasets_and_dataloaders(validation_split, test_split, raw_dataset_pa
                                           transform=transform)
 
     train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=shuffle_dataset, drop_last=True)
-
 
     # Create Validation DataSet and DataLoader
     #validation_dataset = RandomGeneratorDataset(file_list=validation_csv_files, num_stacks=num_stacks,

@@ -319,7 +319,7 @@ class BaselineTrainer:
             Checks if validation loss doesn't improve over early_stop_count epochs.
         """
         # Check if we have more than early_stop_count elements in our validation_loss list.
-        val_loss = self.validation_history["combined_loss"]
+        val_loss = self.validation_history["airway_segment_loss"]
         if len(val_loss) < self.early_stop_count:
             return False
         # We only care about the last [early_stop_count] losses.

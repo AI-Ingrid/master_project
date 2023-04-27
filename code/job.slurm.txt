@@ -1,5 +1,5 @@
 #!/bin/sh
-#SBATCH --job-name="baseline5-5-FL"
+#SBATCH --job-name="test"
 #SBATCH --partition=GPUQ
 #SBATCH --gres=gpu:1
 #SBATCH --constraint="V100|A100"
@@ -10,8 +10,7 @@
 #SBATCH --mail-user=ingrikol@stud.ntnu.no
 #SBATCH --mail-type=ALL
 #SBATCH --mem=128000
-#SBATCH --output=outputs/baseline5-5-FL-CUDA-2.out
-
+#SBATCH --output=outputs/test.out
 
 WORKDIR=${SLURM_SUBMIT_DIR}
 cd ${WORKDIR}

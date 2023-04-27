@@ -3,6 +3,7 @@ File for setting all parameters for the master project. All changes and variable
 """
 from datetime import datetime
 import torch
+import os
 
 # Preprocessing
 fps = 10  # Sampling frequency for video to frames
@@ -58,10 +59,11 @@ num_memory_nodes = 128  # Max = 512
 use_stateful_LSTM = False
 
 # Training specifications
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # "0" or "1"
 perform_training = True
 classify_direction = False
 epochs = 1
-batch_size = 4
+batch_size = 8
 learning_rate = 1e-3
 early_stop_count = 10
 num_stacks = 1024  # Must be divisible by batch size

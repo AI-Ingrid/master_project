@@ -73,7 +73,7 @@ alpha_airway = torch.Tensor([0.2, 0.5, 0.5, 1, 1, 1, 1, 1, 1, 1,
                              1, 1, 1, 1, 1, 1, 1])
 alpha_direction = torch.Tensor([1, 1])
 gamma = 2.0
-use_focal_loss = True
+use_focal_loss = False
 
 # Testing trained model
 load_best_model = True
@@ -81,7 +81,8 @@ convert_to_onnx = True
 test_slide_ratio_in_stack = slide_ratio_in_stack
 
 # Data paths
-root_directory_path = "/cluster/home/ingrikol/master"
+#root_directory_path = "/cluster/home/ingrikol/master"  # IDUN PATH
+root_directory_path = "/home/discoingrid/bronchi_navigation"  # SINTEF PATH
 data_path = f"{root_directory_path}/data/{dataset_type}"
 videos_path = f"{data_path}/{dataset_type}_videos/"
 frames_path = f"{data_path}/{dataset_type}_frames"
@@ -104,3 +105,6 @@ test_plot_path = f"{root_directory_path}/plots/testing/{model_name}"
 
 #tensorboard --logdir="/cluster/home/ingrikol/master/models/frames_5_slide_10_stacks_1024_features_512_LSTM_cells_1_batchsize_16_epochs_2000_focal_loss_False"
 #scp ingrikol@idun-login2.hpc.ntnu.no:"/cluster/home/ingrikol/master/models/onnx/frames_5_slide_10_stacks_1024_features_128_LSTM_cells_1_batchsize_16_epochs_2000_focal_loss_False.onnx" ~
+
+#discingrid - repo -  ferdig preprossesert data
+#bronchus-navi raw dataen

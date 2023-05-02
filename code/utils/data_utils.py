@@ -15,7 +15,6 @@ def find_num_stacks(csv_file, stack_size, slide_ratio):
         num_frames = sum([1 for row in csv_reader])
     num_left_over_frames = (stack_size * slide_ratio) - num_frames % (stack_size * slide_ratio)
     num_stacks = (num_frames + num_left_over_frames) // (stack_size * slide_ratio)
-
     return num_stacks - 1  # Take care of python starting at 0
 
 
@@ -35,7 +34,6 @@ def create_stack_dict(file_list, stack_size, slide_ratio):
                     "local_stack_number": j
                 }
                 index += 1
-
         return total_stacks, stack_dict, overlap_dict
 
 

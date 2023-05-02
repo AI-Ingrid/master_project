@@ -4,25 +4,9 @@ from datasets import create_datasets_and_dataloaders
 from neural_nets import create_neural_net
 from train_models import train_model
 from test_models import test_model
-import pandas as pd
+
 
 def main():
-    print("IDUN -> SINTEF: TEST")
-    videos = list(os.listdir("/home/discoingrid/bronchi_navigation/data/synthetic/datasets/test"))
-
-    for video in videos:
-
-        if not video.startswith(".") or video != "Sequence_019.csv":
-            print("VIDEO: ", video)
-            df = pd.read_csv("/home/discoingrid/bronchi_navigation/data/synthetic/datasets/test/" + video)
-            df["Frame"] = df['Frame'].apply(lambda x: x.replace("/cluster/home/ingrikol/master/", "/home/discoingrid/bronchi_navigation/"))
-        else:
-            print("DS STORE: ", video)
-        new_df = df[["Frame", "Airway_Segment", "Direction"]].copy()
-        new_df.to_csv("/home/discoingrid/bronchi_navigation/data/synthetic/datasets/test/" + video, index=False)
-
-    exit()
-
     """ The function running the entire pipeline of the project """
     # Preprocess the data from videos to frames with labels
     preprocess(convert_videos_to_frames=convert_videos_to_frames,

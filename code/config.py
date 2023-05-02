@@ -49,7 +49,7 @@ validation_split = 0.2  # Fraction that split data into validation data
 split_the_data = False  # Split videos into train, test or validation
 shuffle_dataset = True  # Only true when using the baseline model
 num_frames_in_stack = 10  # Num frames in a stack that gets sent into RNN
-slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack
+slide_ratio_in_stack = 10  # Ratio of slide between frames in a stack
 
 # Neural nets details
 num_airway_segment_classes = 27
@@ -59,21 +59,21 @@ num_memory_nodes = 128  # Max = 512
 use_stateful_LSTM = False
 
 # Training specifications
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # "0" or "1"
-perform_training = True
-classify_direction = False
-epochs = 1
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"  # "0", "1" or "2"
+perform_training = False
+classify_direction = True
+epochs = 5000
 batch_size = 8
 learning_rate = 1e-3
-early_stop_count = 10
+early_stop_count = 100 # 20 # 30 ?
+num_validations = 100
 num_stacks = 1024  # Must be divisible by batch size
-num_validations = 100  # Num times for validation our model during training TODO brukes egt denne mer?
 alpha_airway = torch.Tensor([0.2, 0.5, 0.5, 1, 1, 1, 1, 1, 1, 1,
                              1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                              1, 1, 1, 1, 1, 1, 1])
 alpha_direction = torch.Tensor([1, 1])
 gamma = 2.0
-use_focal_loss = False
+use_focal_loss = True
 
 # Testing trained model
 load_best_model = True
@@ -82,7 +82,8 @@ test_slide_ratio_in_stack = slide_ratio_in_stack
 
 # Data paths
 #root_directory_path = "/cluster/home/ingrikol/master"  # IDUN PATH
-root_directory_path = "/home/discoingrid/bronchi_navigation"  # SINTEF PATH
+#root_directory_path = "/home/discoingrid/bronchi_navigation"  # SINTEF PATH
+root_directory_path = "/mnt/EncryptedPathology/bronchi-navigation/master_project"  # SINTEF PATH
 data_path = f"{root_directory_path}/data/{dataset_type}"
 videos_path = f"{data_path}/{dataset_type}_videos/"
 frames_path = f"{data_path}/{dataset_type}_frames"
@@ -93,7 +94,7 @@ relabeled_csv_videos_path = f"{data_path}/relabeled_videos_csv/"
 dataset_path = f"{data_path}/datasets/"
 
 # Training and Testing paths
-model_type = "baseline"  # {'baseline', 'alpha', 'beta', 'gamma'}
+model_type = "alpha"  # {'baseline', 'alpha', 'beta', 'gamma'}
 date_and_time = datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
 train_plot_path = f"{root_directory_path}/plots/training/"
 train_plot_name = f"{date_and_time}_{dataset_type}_{model_type}_fps_{fps}"

@@ -13,29 +13,39 @@ from tqdm import tqdm
 from torch import nn
 from utils.test_utils import SoftmaxLayer
 from matplotlib import pyplot as plt
-
+import torchmetrics.classification as tm
 
 def get_metrics_for_baseline(predictions, targets, num_airway_classes):
     f1_score_airway = 0
     precision_airway = 0
     recall_airway = 0
 
+    f1_airway_segment_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_airway_classes)
+
     for index, video in enumerate(predictions):
-        f1_score_airway += f1_score(targets[index], video, average='macro')
+        # Convert to tensors
+        airway_targets = np.array(targets[index][0])
+        airway_targets = torch.tensor(airway_targets)
+
+        # Convert to tensors
+        airway_video = np.array(video)
+        airway_video = torch.tensor(airway_video)
+
+        f1_score_airway += f1_airway_segment_metric(airway_targets, airway_video)
 
         temp_precision_airway, temp_recall_airway, _, _ = precision_recall_fscore_support(
-                                                targets[index], video, average="weighted", labels=list(range(1, num_airway_classes+1)))
+                                                targets[index], video, average="macro", labels=list(range(1, num_airway_classes+1)))
 
         # Summarize the metrics one by one
         precision_airway += temp_precision_airway
         recall_airway += temp_recall_airway
 
     # Get the average for the metrics (every video is equally important)
-    average_f1_score_airway = round(f1_score_airway/len(predictions), 3)
+    average_f1_score_airway = f1_score_airway/len(predictions)
 
-    average_precision_airway = round(precision_airway/len(predictions), 3)
+    average_precision_airway = precision_airway/len(predictions)
 
-    average_recall_airway = round(recall_airway/len(predictions), 3)
+    average_recall_airway = recall_airway/len(predictions)
 
     print("Average F1 Macro Score Airway: ",  average_f1_score_airway)
     print("Average Precision Airway: ", average_precision_airway)
@@ -50,12 +60,31 @@ def get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
     recall_airway = 0
     recall_direction = 0
 
+    f1_airway_segment_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_airway_classes)
+    f1_direction_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_direction_classes)
+
     for index, video in enumerate(predictions):
-        f1_score_airway += f1_score(targets[index][0], video[0], average='macro')
-        f1_score_direction += f1_score(targets[index][1], video[1], average='macro')
+        # Convert to tensors
+        airway_targets = np.array(targets[index][0])
+        airway_targets = torch.tensor(airway_targets)
+
+        # Convert to tensors
+        airway_video = np.array(video[0])
+        airway_video = torch.tensor(airway_video)
+
+        # Convert to tensors
+        direction_targets = np.array(targets[index][1])
+        direction_targets = torch.tensor(direction_targets)
+
+        # Convert to tensors
+        direction_video = np.array(video[1])
+        direction_video = torch.tensor(direction_video)
+
+        f1_score_airway += float(f1_airway_segment_metric(airway_targets, airway_video))
+        f1_score_direction += float(f1_direction_metric(direction_targets, direction_video))
 
         temp_precision_airway, temp_recall_airway, _, _ = precision_recall_fscore_support(
-                                                targets[index][0], video[0], average="weighted", labels=list(range(1, num_airway_classes+1)))
+                                                targets[index][0], video[0], average="macro", labels=list(range(1, num_airway_classes+1)))
         temp_precision_direction, temp_recall_direction, _, _ = precision_recall_fscore_support(
                                                 targets[index][1], video[1], average="macro", labels=list(range(0, num_direction_classes)))
 
@@ -373,7 +402,6 @@ def convert_model_to_onnx(model, num_frames, dimension, model_name, model_path):
     dummy_input = torch.randn(1, num_frames, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
     dummy_input_cuda = to_cuda(dummy_input)
     torch.onnx.export(model_for_onnx, (dummy_input_cuda,), f'{model_path}onnx/{model_name}.onnx')
-    print("Model saved and converted to onnx")
 
 
 def map_synthetic_frames_and_test_frames(data_path):

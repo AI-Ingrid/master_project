@@ -63,7 +63,7 @@ def compute_f1_and_loss_for_baseline(
             predictions_airway = predictions_airway.reshape(shape_airway)
 
             # Compute Loss
-            cross_entropy_loss_airway = loss_criterion(predictions_airway.cpu(), Y_batch_airway.float().cpu(), reduction='none')
+            cross_entropy_loss_airway = loss_criterion(predictions_airway, Y_batch_airway.float(), reduction='none')
 
             cross_entropy_loss_airway = cross_entropy_loss_airway.mean()
 
@@ -86,6 +86,7 @@ def compute_f1_and_loss_for_baseline(
     f1_airway = f1_airway / counter
 
     return loss_airway, f1_airway
+
 def compute_f1_and_loss(
         dataloader: torch.utils.data.DataLoader,
         model: torch.nn.Module,
@@ -115,8 +116,8 @@ def compute_f1_and_loss(
     counter = 0
 
     # Handle unbalanced dataset with the use of F1 Macro Score
-    f1_airway_segment_metric = tm.F1Score(average='macro', task='multilabel', num_classes=num_airway_segment_classes)
-    f1_direction_metric = tm.F1Score(average='macro', task='multilabel', num_classes=num_direction_classes)
+    f1_airway_segment_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_airway_segment_classes)
+    f1_direction_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_direction_classes)
 
     with torch.no_grad():
         for (X_batch, (Y_batch_airway, Y_batch_direction)) in dataloader:
@@ -156,8 +157,8 @@ def compute_f1_and_loss(
             predictions_direction = predictions_direction.reshape(shape_direction)
 
             # Compute Loss
-            cross_entropy_loss_airway = loss_criterion(predictions_airway.cpu(), Y_batch_airway.float().cpu(), reduction='none')
-            cross_entropy_loss_direction = loss_criterion(predictions_direction.cpu(), Y_batch_direction.float().cpu(), reduction='none')
+            cross_entropy_loss_airway = loss_criterion(predictions_airway, Y_batch_airway.float(), reduction='none')
+            cross_entropy_loss_direction = loss_criterion(predictions_direction, Y_batch_direction.float(), reduction='none')
 
             cross_entropy_loss_airway = cross_entropy_loss_airway.mean()
             cross_entropy_loss_direction = cross_entropy_loss_direction.mean()
@@ -376,7 +377,7 @@ class BaselineTrainer:
         # Reset all computed gradients to 0
         self.optimizer.zero_grad()
 
-        return airway_loss.detach().cpu().item()
+        return airway_loss
 
     def train(self):
         """
@@ -643,7 +644,7 @@ class NavigationNetTrainer:
         # Reset all computed gradients to 0
         self.optimizer.zero_grad()
 
-        return airway_loss.detach().cpu().item(), direction_loss.detach().cpu().item(), combined_loss.detach().cpu().item()
+        return airway_loss, direction_loss, combined_loss
 
     def train(self):
         """

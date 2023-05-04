@@ -13,9 +13,6 @@ def compute_f1_and_loss_for_baseline(
         model: torch.nn.Module,
         loss_criterion: torch.nn.modules.loss._Loss,
         num_airway_segment_classes: int,
-        alpha_airway: torch.Tensor,
-        gamma: float,
-        use_focal_loss: bool,
         num_frames_in_stack: int,
         batch_size: int):
     """
@@ -67,18 +64,8 @@ def compute_f1_and_loss_for_baseline(
 
             cross_entropy_loss_airway = cross_entropy_loss_airway.mean()
 
-            # Calculate focal loss
-            if use_focal_loss:
-                pt_airway = torch.exp(-cross_entropy_loss_airway)
-
-                focal_loss_airway = (alpha_airway * (1 - pt_airway) ** gamma * cross_entropy_loss_airway).mean()
-
-                # Summarize over all batches
-                loss_airway += focal_loss_airway
-
-            else:
-                # Summarize over all batches
-                loss_airway += cross_entropy_loss_airway
+            # Summarize over all batches
+            loss_airway += cross_entropy_loss_airway
 
             counter += 1
 
@@ -98,7 +85,9 @@ def compute_f1_and_loss(
         gamma: float,
         use_focal_loss: bool,
         num_frames_in_stack: int,
-        batch_size: int):
+        batch_size: int,
+        hidden: tuple(),
+):
     """
     Computes the average loss and the accuracy over the whole dataset
     in dataloader.
@@ -125,11 +114,10 @@ def compute_f1_and_loss(
             X_batch = to_cuda(X_batch)
             Y_batch_airway = to_cuda(Y_batch_airway)
             Y_batch_direction = to_cuda(Y_batch_direction)
+            hidden = (to_cuda(hidden[0]), to_cuda(hidden[1]))
 
             # Perform the forward pass
-            predictions = model(X_batch)
-            predictions_airway = predictions[0]
-            predictions_direction = predictions[1]
+            predictions_airway, predictions_direction, hidden = model(X_batch, hidden)
 
             # Get the prediction probabilities
             predictions_airway_softmax = torch.softmax(predictions_airway, dim=-1)  # [16, 10, 27]
@@ -187,7 +175,7 @@ def compute_f1_and_loss(
     f1_airway = f1_airway / counter
     f1_direction = f1_direction / counter
 
-    return loss_airway, loss_direction, f1_airway, f1_direction
+    return loss_airway, loss_direction, f1_airway, f1_direction, hidden
 
 
 def compute_combined_loss(airway_loss, direction_loss):
@@ -202,18 +190,14 @@ class BaselineTrainer:
                  learning_rate: float,
                  early_stop_count: int,
                  epochs: int,
-                 num_validations: int,
                  model: torch.nn.Module,
                  train_dataloader: typing.List[torch.utils.data.DataLoader],
                  validation_dataloader: typing.List[torch.utils.data.DataLoader],
-                 fps: int,
                  num_airway_segment_classes: int,
                  num_frames_in_stack: int,
                  model_path: str,
                  model_name: str,
-                 use_focal_loss: bool,
-                 alpha_airway: torch.Tensor,
-                 gamma: float):
+                 ):
         """
             Initialize our trainer class.
         """
@@ -221,7 +205,6 @@ class BaselineTrainer:
         self.learning_rate = learning_rate
         self.early_stop_count = early_stop_count
         self.epochs = epochs
-        self.num_validations = num_validations
 
         # Initialize the model
         self.model = model
@@ -231,13 +214,8 @@ class BaselineTrainer:
         self.validation_dataloader = validation_dataloader
 
         # Set variables
-        self.fps = fps
         self.num_airway_segment_classes = num_airway_segment_classes
         self.num_frames_in_stack = num_frames_in_stack
-
-        self.use_focal_loss = use_focal_loss
-        self.alpha_airway = to_cuda(alpha_airway)
-        self.gamma = gamma
 
         # Set loss criterion
         self.loss_criterion = torch.nn.functional.cross_entropy
@@ -250,7 +228,6 @@ class BaselineTrainer:
                                           self.learning_rate)
 
         # Validate the model everytime we pass through 1/num_validations of the dataset
-        self.num_steps_per_val = len(self.train_dataloader) // self.num_validations
         self.global_step = 0
         self.start_time = time.time()
 
@@ -276,8 +253,7 @@ class BaselineTrainer:
         train_airway_loss, train_airway_f1 = compute_f1_and_loss_for_baseline(
             dataloader=self.train_dataloader, model=self.model, loss_criterion=self.loss_criterion,
             num_airway_segment_classes=self.num_airway_segment_classes,
-            alpha_airway=self.alpha_airway, gamma=self.gamma,
-            use_focal_loss=self.use_focal_loss, num_frames_in_stack=self.num_frames_in_stack,
+            num_frames_in_stack=self.num_frames_in_stack,
             batch_size=self.batch_size)
 
         # Store training accuracy in dictionary
@@ -291,8 +267,7 @@ class BaselineTrainer:
         val_airway_loss, val_airway_f1 = compute_f1_and_loss_for_baseline(
             dataloader=self.validation_dataloader, model=self.model, loss_criterion=self.loss_criterion,
             num_airway_segment_classes=self.num_airway_segment_classes,
-            alpha_airway=self.alpha_airway, gamma=self.gamma,
-            use_focal_loss=self.use_focal_loss, num_frames_in_stack=self.num_frames_in_stack,
+            num_frames_in_stack=self.num_frames_in_stack,
             batch_size=self.batch_size)
 
         # Store validation loss and f1in dictionary
@@ -359,14 +334,6 @@ class BaselineTrainer:
                                           reduction="none")  # [16 * 5 = 80 ] --> 3.37
 
         airway_loss = airway_loss.mean()
-
-        # Calculate focal loss
-        if self.use_focal_loss:
-            pt_airway = torch.exp(-airway_loss)  # 16 * 5 = 80 eller bare ett tall?
-
-            focal_loss_airway = (self.alpha_airway * (1 - pt_airway) ** self.gamma * airway_loss)
-
-            airway_loss = focal_loss_airway.mean()
 
         # Backpropagation
         airway_loss.backward()
@@ -435,20 +402,22 @@ class NavigationNetTrainer:
                  learning_rate: float,
                  early_stop_count: int,
                  epochs: int,
-                 num_validations: int,
                  model: torch.nn.Module,
                  train_dataloader: typing.List[torch.utils.data.DataLoader],
                  validation_dataloader: typing.List[torch.utils.data.DataLoader],
-                 fps: int,
                  num_airway_segment_classes: int,
                  num_direction_classes: int,
                  num_frames_in_stack: int,
+                 hidden_size: int,
                  model_path: str,
                  model_name: str,
                  use_focal_loss: bool,
                  alpha_airway: torch.Tensor,
                  alpha_direction: torch.Tensor,
-                 gamma: float):
+                 gamma: float,
+                 num_LSTM_cells: int,
+                 ):
+
         """
             Initialize our trainer class.
         """
@@ -456,7 +425,6 @@ class NavigationNetTrainer:
         self.learning_rate = learning_rate
         self.early_stop_count = early_stop_count
         self.epochs = epochs
-        self.num_validations = num_validations
 
         # Initialize the model
         self.model = model
@@ -466,10 +434,11 @@ class NavigationNetTrainer:
         self.validation_dataloader = validation_dataloader
 
         # Set variables
-        self.fps = fps
         self.num_airway_segment_classes = num_airway_segment_classes
         self.num_direction_classes = num_direction_classes
         self.num_frames_in_stack = num_frames_in_stack
+        self.num_LSTM_cells = num_LSTM_cells
+        self.hidden_size = hidden_size
 
         self.use_focal_loss = use_focal_loss
         self.alpha_airway = to_cuda(alpha_airway)
@@ -486,8 +455,6 @@ class NavigationNetTrainer:
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           self.learning_rate)
 
-        # Validate the model everytime we pass through 1/num_validations of the dataset
-        self.num_steps_per_val = len(self.train_dataloader) // self.num_validations
         self.global_step = 0
         self.start_time = time.time()
 
@@ -517,12 +484,17 @@ class NavigationNetTrainer:
             Train, validation and test.
         """
         self.model.eval()
+        # Initialize hidden state and hidden cell for training
+        h_n = torch.zeros(self.num_LSTM_cells, self.batch_size, self.hidden_size)  # [num_layers,batch,hidden_size or H_out]
+        c_n = torch.zeros(self.num_LSTM_cells, self.batch_size, self.hidden_size)  # [num_layers,batch,hidden_size]
+
         # Compute train loss and accuracy
-        train_airway_loss, train_direction_loss, train_airway_f1, train_direction_f1 = compute_f1_and_loss(
+        train_airway_loss, train_direction_loss, train_airway_f1, train_direction_f1, hidden = compute_f1_and_loss(
             dataloader=self.train_dataloader, model=self.model, loss_criterion=self.loss_criterion,
             num_airway_segment_classes=self.num_airway_segment_classes, num_direction_classes=self.num_direction_classes,
             alpha_airway=self.alpha_airway, alpha_direction=self.alpha_direction, gamma=self.gamma,
-            use_focal_loss=self.use_focal_loss, num_frames_in_stack=self.num_frames_in_stack, batch_size=self.batch_size)
+            use_focal_loss=self.use_focal_loss, num_frames_in_stack=self.num_frames_in_stack, batch_size=self.batch_size,
+            hidden=(h_n, c_n))
 
         # Store training accuracy in dictionary
         self.train_history["airway_f1"][self.global_step] = train_airway_f1
@@ -537,12 +509,21 @@ class NavigationNetTrainer:
         self.tensorboard_writer.add_scalar("train airway f1", train_airway_f1, self.global_step)
         self.tensorboard_writer.add_scalar("train direction f1", train_direction_f1, self.global_step)
 
+        # Detach and reset the hidden states
+        hidden[0].detach().zero_()
+        hidden[1].detach().zero_()
+
+        # Initialize hidden state and hidden cell for validation
+        h_n = torch.zeros(self.num_LSTM_cells, self.batch_size, self.hidden_size)  # [num_layers,batch,hidden_size or H_out]
+        c_n = torch.zeros(self.num_LSTM_cells, self.batch_size, self.hidden_size)  # [num_layers,batch,hidden_size]
+
         # Compute validation loss and accuracy
-        val_airway_loss, val_direction_loss, val_airway_f1, val_direction_f1 = compute_f1_and_loss(
+        val_airway_loss, val_direction_loss, val_airway_f1, val_direction_f1, hidden = compute_f1_and_loss(
             dataloader=self.validation_dataloader,model=self.model, loss_criterion=self.loss_criterion,
             num_airway_segment_classes=self.num_airway_segment_classes, num_direction_classes=self.num_direction_classes,
             alpha_airway=self.alpha_airway, alpha_direction=self.alpha_direction, gamma=self.gamma,
-            use_focal_loss=self.use_focal_loss, num_frames_in_stack=self.num_frames_in_stack, batch_size=self.batch_size)
+            use_focal_loss=self.use_focal_loss, num_frames_in_stack=self.num_frames_in_stack, batch_size=self.batch_size,
+            hidden=(h_n, c_n))
 
         val_combined_loss = compute_combined_loss(val_airway_loss, val_direction_loss)
 
@@ -559,6 +540,10 @@ class NavigationNetTrainer:
         self.tensorboard_writer.add_scalar("validation combined loss", val_combined_loss, self.global_step)
         self.tensorboard_writer.add_scalar("validation airway f1", val_airway_f1, self.global_step)
         self.tensorboard_writer.add_scalar("validation direction f1", val_direction_f1, self.global_step)
+
+        # Detach and reset the hidden states
+        hidden[0].detach().zero_()
+        hidden[1].detach().zero_()
 
         used_time = time.time() - self.start_time
         self.tensorboard_writer.add_scalar("used time", used_time, self.global_step)
@@ -587,7 +572,7 @@ class NavigationNetTrainer:
             return True
         return False
 
-    def train_step(self, X_batch, Y_batch):
+    def train_step(self, X_batch, Y_batch, hidden):
         """
         Perform forward, backward and gradient descent step here.
         The function is called once for every batch (see trainer.py) to perform the train step.
@@ -598,12 +583,14 @@ class NavigationNetTrainer:
         Returns:
             loss value (float) on batch
         """
+        # Convert to CUDA is available
         X_batch = to_cuda(X_batch)
         Y_batch_airway = to_cuda(Y_batch[0])
         Y_batch_direction = to_cuda(Y_batch[1])
+        hidden = (to_cuda(hidden[0]), to_cuda(hidden[1]))
 
         # Perform the forward pass
-        predictions_airway, predictions_direction = self.model(X_batch)
+        predictions_airway, predictions_direction, hidden = self.model(X_batch, hidden)
 
         # Reshape 3D to 2D for the loss function
         shape_airway = (self.batch_size * self.num_frames_in_stack, self.num_airway_segment_classes)
@@ -611,6 +598,7 @@ class NavigationNetTrainer:
 
         Y_batch_airway = Y_batch_airway.reshape(shape_airway)
         Y_batch_direction = Y_batch_direction.reshape(shape_direction)
+
         predictions_airway = predictions_airway.reshape(shape_airway)  # [80, 27]
         predictions_direction = predictions_direction.reshape(shape_direction)  # [80, 2]
 
@@ -644,33 +632,37 @@ class NavigationNetTrainer:
         # Reset all computed gradients to 0
         self.optimizer.zero_grad()
 
-        return airway_loss, direction_loss, combined_loss
+        # Detach the hidden state and reset it after every batch batch
+        #self.model._hidden_state = self.model._hidden_state.detach().zero_()
+        #self.model._hidden_cell = self.model._hidden_cell.detach().zero_()
+        h_n = hidden[0].detach().zero_()
+        c_n = hidden[1].detach().zero_()
+
+        return airway_loss, direction_loss, combined_loss, h_n, c_n
 
     def train(self):
         """
         Trains the model for [self.epochs] epochs.
         """
-
-        def should_validate_model():
-            return self.global_step % self.num_steps_per_val == 0
-
         for epoch in range(self.epochs):
             self.epoch = epoch
             print("Epoch: ", epoch)
 
-            # Create first hidden and cell state with batch=1
-            #hidden_state = torch.zeros(self.batch_size, self.num_frames_in_stack, 128)  # [num_layers*num_directions,batch,hidden_size]
-            #cell_state = torch.zeros(self.batch_size, self.num_frames_in_stack, 128)  # [num_layers*num_directions,batch,hidden_size]
+            # Initialize hidden state and cell state at the beginning of every epoch
+            h_n = torch.zeros(self.num_LSTM_cells, self.batch_size, self.hidden_size)  # [num_layers,batch,hidden_size or H_out]
+            c_n = torch.zeros(self.num_LSTM_cells, self.batch_size, self.hidden_size)  # [num_layers,batch,hidden_size]
 
             # Perform a full pass through all the training samples
             for X_batch, Y_batch in self.train_dataloader:
-                airway_segment_loss, direction_loss, combined_loss = self.train_step(X_batch, Y_batch)
+                # Perform train step -> FORWARD
+                airway_segment_loss, direction_loss, combined_loss, h_n, c_n = self.train_step(X_batch, Y_batch, (h_n, c_n))
 
                 # Store training history in dictionary
                 self.train_history["airway_segment_loss"][self.global_step] = airway_segment_loss
                 self.train_history["direction_loss"][self.global_step] = direction_loss
                 self.train_history["combined_loss"][self.global_step] = combined_loss
 
+                # Increase the global step
                 self.global_step += 1
 
             # Compute loss/accuracy for validation set
@@ -701,21 +693,34 @@ class NavigationNetTrainer:
         self.model = torch.jit.load(model_path, map_location=torch.device('cuda'))
 
 
-def train_model(perform_training, batch_size, learning_rate, early_stop_count, epochs, num_validations,
-                neural_net, train_dataloader, validation_dataloader, fps, num_airway_segment_classes, num_direction_classes, num_frames_in_stack,
-                model_path, model_name, use_focal_loss, alpha_airway, alpha_direction, gamma, model_type):
+def train_model(perform_training, batch_size, learning_rate, early_stop_count, epochs,
+                neural_net, train_dataloader, validation_dataloader, fps, num_airway_segment_classes,
+                num_direction_classes, num_frames_in_stack, hidden_size, model_path, model_name,
+                use_focal_loss, alpha_airway, alpha_direction, gamma, model_type):
+
     # Initialize a BaselineTrainer
     if model_type == 'baseline':
-        trainer = BaselineTrainer(batch_size, learning_rate, early_stop_count, epochs, num_validations, neural_net, train_dataloader,
-            validation_dataloader, fps, num_airway_segment_classes, num_frames_in_stack,
-            model_path, model_name, use_focal_loss, alpha_airway, gamma)
+        trainer = BaselineTrainer(batch_size=batch_size, learning_rate=learning_rate, early_stop_count=early_stop_count,
+                                  epochs=epochs, model=neural_net, train_dataloader=train_dataloader,
+                                  validation_dataloader=validation_dataloader, num_airway_segment_classes=num_airway_segment_classes,
+                                  num_frames_in_stack=num_frames_in_stack, model_path=model_path, model_name=model_name)
 
     # Initialize a NavigationNetTrainer
     else:
-        trainer = NavigationNetTrainer(
-            batch_size, learning_rate, early_stop_count, epochs, num_validations, neural_net, train_dataloader,
-            validation_dataloader, fps, num_airway_segment_classes, num_direction_classes, num_frames_in_stack,
-            model_path, model_name, use_focal_loss, alpha_airway, alpha_direction, gamma)
+        if model_type == "blomst" or model_type == "alpha":
+            num_LSTM_cells = 1
+        elif model_type == "boble":
+            num_LSTM_cells = 2
+        elif model_type == "belle":
+            num_LSTM_cells = 3
+        else:
+            print("Model type is not 'blomst', 'boble' or 'belle'")
+        trainer = NavigationNetTrainer(batch_size=batch_size, learning_rate=learning_rate, early_stop_count=early_stop_count,
+                                       epochs=epochs, model=neural_net, train_dataloader=train_dataloader, validation_dataloader=validation_dataloader,
+                                       num_airway_segment_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes,
+                                       num_frames_in_stack=num_frames_in_stack, hidden_size=hidden_size, model_path=model_path, model_name=model_name,
+                                       use_focal_loss=use_focal_loss, alpha_airway=alpha_airway, alpha_direction=alpha_direction, gamma=gamma,
+                                       num_LSTM_cells=num_LSTM_cells)
     if perform_training:
         print("-- TRAINING --")
 

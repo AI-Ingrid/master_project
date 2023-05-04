@@ -35,14 +35,13 @@ def main():
                                    model_type=model_type, num_frames_in_stack=num_frames_in_stack,
                                    num_airway_segment_classes=num_airway_segment_classes,
                                    num_direction_classes=num_direction_classes, frame_dimension=frame_dimension,
-                                   batch_size=batch_size, use_stateful_LSTM=use_stateful_LSTM)
+                                   batch_size=batch_size)
 
     # Train model
     trainer = train_model(perform_training=perform_training, batch_size=batch_size, learning_rate=learning_rate,
-                          early_stop_count=early_stop_count, epochs=epochs, num_validations=num_validations,
-                          neural_net=neural_net, train_dataloader=train_dataloader,
+                          early_stop_count=early_stop_count, epochs=epochs, neural_net=neural_net, train_dataloader=train_dataloader,
                           validation_dataloader=validation_dataloader, fps=fps, num_airway_segment_classes=num_airway_segment_classes,
-                          num_direction_classes=num_direction_classes, num_frames_in_stack=num_frames_in_stack,
+                          num_direction_classes=num_direction_classes, num_frames_in_stack=num_frames_in_stack, hidden_size=num_memory_nodes,
                           model_path=model_path, model_name=model_name, use_focal_loss=use_focal_loss, alpha_airway=alpha_airway,
                           alpha_direction=alpha_direction, gamma=gamma, model_type=model_type)
 

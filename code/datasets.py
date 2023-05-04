@@ -28,9 +28,9 @@ def separate_dataframe(video_df, transform, num_airway_segment_classes, num_dire
 
     # Convert to Tensor
     frames = torch.tensor(new_frames)  # [num_frames=5, channels=3, width=384, height=384]
-    #print("TENSOR SHAPE: ", frames.shape)
+    print("TENSOR SHAPE: ", frames.shape)
     frames = torch.moveaxis(frames, 3, 1)
-    #print("TENSOR SHAPE: ", frames.shape)
+    print("TENSOR RESHAPE SHAPE: ", frames.shape)
     # Not one-hot encode the labels for the test set
     if is_test_dataset:
         airway_labels = torch.tensor(airway_labels.values)

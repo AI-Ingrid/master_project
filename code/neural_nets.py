@@ -4,7 +4,6 @@ import torch
 import torch.nn.functional as F
 
 
-
 class TimeDistributed(nn.Module):
     def __init__(self, feature_extractor, org_shape):
         super(TimeDistributed, self).__init__()
@@ -20,12 +19,9 @@ class TimeDistributed(nn.Module):
         """
         # Reshape to 4 dim
         X_reshaped = X.contiguous().view((-1,) + self.org_shape[2:])  # [batch_size * num_frames_in_stack, RGB, height, width]
-        #print("X_RESHAPED: ", X_reshaped.shape)
         output = self.feature_extractor(X_reshaped.float())  # [batch_size * num_frames_in_stack, num_features]
-        #print("Output resnet: ", output.shape)
         # Reshape to 3D
         output_reshaped = output.contiguous().view((-1, self.org_shape[1]) + (output.shape[-1],))  # [8, 10, 128]
-        #print("RESHAPED OUTPUT: ", output_reshaped.shape)
         return output_reshaped
 
 
@@ -184,7 +180,6 @@ class NavigationNet(nn.Module):
 
         return airway, direction
 
-
 def create_neural_net(num_memory_nodes, num_features_extracted, model_type, num_frames_in_stack, num_airway_segment_classes, num_direction_classes, frame_dimension, batch_size, use_stateful_LSTM):
 
     print("-- NEURAL NET --")
@@ -193,23 +188,23 @@ def create_neural_net(num_memory_nodes, num_features_extracted, model_type, num_
         neural_net = Baseline(num_features=num_features_extracted, num_frames_in_stack=num_frames_in_stack, num_airway_segment_classes=num_airway_segment_classes,
                               batch_size=batch_size, frame_dimension=frame_dimension)
     # Alpha -> 1 LSTM cell
-    elif model_type == 'alpha':
+    elif model_type == 'blomst':
         neural_net = NavigationNet(num_memory_nodes=num_memory_nodes, num_features=num_features_extracted, num_stacked_LSTMs=1, use_stateful_LSTM=use_stateful_LSTM,
                                    num_frames_in_stack=num_frames_in_stack, num_airway_segment_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes,
                                    batch_size=batch_size, frame_dimension=frame_dimension)
     # Beta-> 2 LSTM cells
-    elif model_type == 'beta':
+    elif model_type == 'boble':
         neural_net = NavigationNet(num_memory_nodes=num_memory_nodes, num_features=num_features_extracted, num_stacked_LSTMs=2, use_stateful_LSTM=use_stateful_LSTM,
                                    num_frames_in_stack=num_frames_in_stack, num_airway_segment_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes,
                                    batch_size=batch_size, frame_dimension=frame_dimension)
     # Gamma -> 3 LSTM cells
-    elif model_type == 'gamma':
+    elif model_type == 'belle':
         neural_net = NavigationNet(num_memory_nodes=num_memory_nodes, num_features=num_features_extracted, num_stacked_LSTMs=3, use_stateful_LSTM=use_stateful_LSTM,
                                    num_frames_in_stack=num_frames_in_stack, num_airway_segment_classes=num_airway_segment_classes, num_direction_classes=num_direction_classes,
                                    batch_size=batch_size, frame_dimension=frame_dimension)
 
     else:
-        print("Model type entered: ", model_type, ". But should be 'baseline', 'alpha', 'beta' or 'gamma'")
+        print("Model type entered: ", model_type, ". But should be 'baseline', 'blomst', 'boble' or 'belle'")
         return
 
     return neural_net

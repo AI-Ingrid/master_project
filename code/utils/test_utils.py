@@ -19,7 +19,6 @@ class SoftmaxLayer(nn.Module):
         return X
 
 
-
 def plot_predictions_test_set(test_set, trainer, path, network_type, get_testset_pred):
     if get_testset_pred:
         # Store images with predicted and true label on it

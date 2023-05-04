@@ -427,7 +427,6 @@ class BaselineTrainer:
         # TODO: dette blir torch script model og ikke torch model
         self.model = torch.jit.load(model_path, map_location=torch.device('cuda'))
 
-
 class NavigationNetTrainer:
 
     def __init__(self,

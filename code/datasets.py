@@ -1,5 +1,3 @@
-import copy
-
 from preprocess import *
 from utils.data_utils import create_stack_dict
 from torch.utils.data import Dataset, DataLoader
@@ -7,7 +5,6 @@ from pathlib import PurePath
 import torch
 import cv2
 from torchvision import transforms
-import csv
 
 
 def separate_dataframe(video_df, transform, num_airway_segment_classes, num_direction_classes, is_test_dataset=False):
@@ -18,7 +15,6 @@ def separate_dataframe(video_df, transform, num_airway_segment_classes, num_dire
     frames = []
     for frame_path in frame_paths:
         frame = cv2.imread(frame_path)
-        # frame = cv2.cvtColor(cv2.imread(frame_path), cv2.COLOR_BGR2RGB)
         # Transform frame
         frame = transform(frame)
         frames.append(np.asarray(frame))
@@ -28,9 +24,9 @@ def separate_dataframe(video_df, transform, num_airway_segment_classes, num_dire
 
     # Convert to Tensor
     frames = torch.tensor(new_frames)  # [num_frames=5, channels=3, width=384, height=384]
-    #print("TENSOR SHAPE: ", frames.shape)
-    frames = torch.moveaxis(frames, 3, 1)
-    #print("TENSOR SHAPE: ", frames.shape)
+    # TODO: hvorfor hadde vi denne kommandoen her? Vi trenger den ikke?
+    #frames = torch.moveaxis(frames, 3, 1)
+
     # Not one-hot encode the labels for the test set
     if is_test_dataset:
         airway_labels = torch.tensor(airway_labels.values)
@@ -43,7 +39,6 @@ def separate_dataframe(video_df, transform, num_airway_segment_classes, num_dire
         direction_labels = torch.nn.functional.one_hot(torch.tensor(direction_labels.values),
                                                        num_classes=num_direction_classes)  # [num_frames=5, num_classes=2]
     return frames, airway_labels.float(), direction_labels.float()
-
 
 class RandomGeneratorDataset(Dataset):
     """ Dataset class for the lung airway net that generates
@@ -234,14 +229,7 @@ def create_datasets_and_dataloaders(validation_split, test_split, raw_dataset_pa
         transforms.ToPILImage(),
         transforms.Resize(frame_dimension),
         transforms.ToTensor(),
-        #transforms.Normalize(),
     ])
-
-    # Create Train Dataset and DataLoader
-    # train_dataset = RandomGeneratorDataset(file_list=train_csv_files, num_stacks=num_stacks,
-    # num_frames=num_frames_in_stack, slide_ratio=slide_ratio_in_stack,
-    # num_airway_classes=num_airway_segment_classes,
-    # num_direction_classes=num_direction_classes, transform=transform)
 
     train_dataset = StackGeneratorDataset(file_list=train_csv_files, stack_size=num_frames_in_stack,
                                           slide_ratio=test_slide_ratio_in_stack,
@@ -251,11 +239,6 @@ def create_datasets_and_dataloaders(validation_split, test_split, raw_dataset_pa
 
     train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=shuffle_dataset, drop_last=True)
 
-    # Create Validation DataSet and DataLoader
-    # validation_dataset = RandomGeneratorDataset(file_list=validation_csv_files, num_stacks=num_stacks,
-    # num_frames=num_frames_in_stack, slide_ratio=slide_ratio_in_stack,
-    # num_airway_classes=num_airway_segment_classes,
-    # num_direction_classes=num_direction_classes, transform=transform)
 
     validation_dataset = StackGeneratorDataset(file_list=validation_csv_files, stack_size=num_frames_in_stack,
                                                slide_ratio=slide_ratio_in_stack,

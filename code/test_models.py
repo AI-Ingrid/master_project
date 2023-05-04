@@ -25,15 +25,14 @@ def get_metrics_for_baseline(predictions, targets, num_airway_classes):
 
     for index, video in enumerate(predictions):
         # Convert to tensors
-        airway_targets = np.array(targets[index][0])
-        airway_targets = torch.tensor(airway_targets)
+        airway_targets = np.array(targets[index])
+        airway_targets = torch.tensor(airway_targets, dtype=torch.int64)
 
         # Convert to tensors
-
         airway_video = np.array(video)
-        airway_video = torch.tensor(airway_video)
+        airway_video = torch.tensor(airway_video, dtype=torch.int64)
 
-        f1_score_airway += f1_airway_segment_metric(airway_targets, airway_video)
+        f1_score_airway += float(f1_airway_segment_metric(airway_video, airway_targets))
 
         temp_precision_airway, temp_recall_airway, _, _ = precision_recall_fscore_support(
                                                 targets[index], video, average="macro", labels=list(range(1, num_airway_classes+1)))
@@ -43,11 +42,11 @@ def get_metrics_for_baseline(predictions, targets, num_airway_classes):
         recall_airway += temp_recall_airway
 
     # Get the average for the metrics (every video is equally important)
-    average_f1_score_airway = f1_score_airway/len(predictions)
+    average_f1_score_airway = round(f1_score_airway/len(predictions), 3)
 
-    average_precision_airway = precision_airway/len(predictions)
+    average_precision_airway = round(precision_airway/len(predictions), 3)
 
-    average_recall_airway = recall_airway/len(predictions)
+    average_recall_airway = round(recall_airway/len(predictions), 3)
 
     print("Average F1 Macro Score Airway: ",  average_f1_score_airway)
     print("Average Precision Airway: ", average_precision_airway)
@@ -62,35 +61,31 @@ def get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
     recall_airway = 0
     recall_direction = 0
 
-    f1_airway_segment_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_airway_classes)
-    f1_direction_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_direction_classes)
+    f1_airway_segment_metric = tm.F1Score(average='micro', task='multiclass', num_classes=num_airway_classes)
+    f1_direction_metric = tm.F1Score(average='micro', task='multiclass', num_classes=num_direction_classes)
 
     for index, video in enumerate(predictions):
         # Convert targets to tensors
         airway_targets = np.array(targets[index][0])
         airway_targets = torch.tensor(airway_targets, dtype=torch.int64)  # [num_frames=5, num_classes = 27]
-        print("Airway Targets: ", airway_targets)
-        print("Airway targets shape: ", airway_targets.shape)
+
         direction_targets = np.array(targets[index][1])
         direction_targets = torch.tensor(direction_targets, dtype=torch.int64)  # [num_frames=5, num_classes=2]
 
         # Convert video predictions to tensors
         airway_video = np.array(video[0])
         airway_video = torch.tensor(airway_video, dtype=torch.int64) # [num_frames=5, num_classes = 27]
-        print("Airway pres: ", airway_video)
-        print("Airway pred shape: ", airway_video.shape)
+
         direction_video = np.array(video[1])
         direction_video = torch.tensor(direction_video, dtype=torch.int64) # [num_frames=5, num_classes=2]
 
-        print("Airway F1 for video: ", float(f1_airway_segment_metric(airway_video, airway_targets)) )
-        print("Direction F1 for video: ", float(f1_airway_segment_metric(direction_video, direction_targets)))
         f1_score_airway += float(f1_airway_segment_metric(airway_video, airway_targets))
         f1_score_direction += float(f1_direction_metric(direction_video, direction_targets))
 
         temp_precision_airway, temp_recall_airway, _, _ = precision_recall_fscore_support(
-                                                targets[index][0], video[0], average="macro", labels=list(range(1, num_airway_classes+1)))
+                                                targets[index][0], video[0], average="micro", labels=list(range(1, num_airway_classes+1)))
         temp_precision_direction, temp_recall_direction, _, _ = precision_recall_fscore_support(
-                                                targets[index][1], video[1], average="macro", labels=list(range(0, num_direction_classes)))
+                                                targets[index][1], video[1], average="micro", labels=list(range(0, num_direction_classes)))
 
         # Summarize the metrics one by one
         precision_airway += temp_precision_airway
@@ -98,7 +93,6 @@ def get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
 
         precision_direction += temp_precision_direction
         recall_direction += temp_recall_direction
-    # TODO sjekke lengden av predictions igjen
 
     # Get the average for the metrics (every video is equally important)
     average_f1_score_airway = round(f1_score_airway/len(predictions), 3)
@@ -119,10 +113,14 @@ def get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
 
 
 def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio, num_frames, data_path, model_name):
-    # pred: [(airway), (airway), .......]
-    # targets: [(airway), (airway), .......]
-    all_predictions = []
-    all_targets = []
+    # Create path to store csv files with predictions and labels for the given model
+    directory_path = pathlib.Path(f"{data_path}/test_set_predictions/{model_name}")
+    if os.path.exists(directory_path):
+        shutil.rmtree(directory_path)
+    os.makedirs(directory_path)
+
+    all_predictions = [] # [(airway, direction), (airway, direction), .......]
+    all_targets = [] # [(airway, direction), (airway, direction), .......]
 
     sequence_list = list(os.listdir(f"{data_path}/datasets/test"))
     test_sequences = [file.split(".")[0] for file in sequence_list if (file.lower().endswith('.csv'))]
@@ -150,14 +148,13 @@ def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio,
             stack = extended_video_frames[i:i + (num_frames * test_slide_ratio): test_slide_ratio]
 
             # Reshape stack to 5D setting batch size to 1
-            print("Stack shape: ", stack.shape)
             stack_shape = stack.shape
             stack_5D = stack.reshape(1, stack_shape[0], stack_shape[1], stack_shape[2], stack_shape[3])
 
             # Send Tensor to GPU
             stack_5D = to_cuda(stack_5D)
 
-            #stack_5D /= 255
+            torch.manual_seed(42)
 
             # Send stack into the model and get predictions
             predictions_airway = model(stack_5D)  # (1, 5, 27)
@@ -166,13 +163,13 @@ def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio,
             predictions_airway = torch.squeeze(predictions_airway)  # (5, 27)
 
             # Softmax
-            probabilities_airway = torch.softmax(predictions_airway, dim=1).detach().cpu()    # (5, 27)
+            probabilities_airway = torch.softmax(predictions_airway, dim=-1).detach().cpu()    # (5, 27)
 
             # Free memory
             del predictions_airway
 
             # Argmax
-            predictions_airway = np.argmax(probabilities_airway, axis=1)  # (5)
+            predictions_airway = torch.argmax(probabilities_airway, axis=-1)  # (5)
 
             # Interpolate - Resize
             full_stack_predictions_airway = scipy.ndimage.zoom(predictions_airway, zoom=(test_slide_ratio), order=0)  # [50]
@@ -185,17 +182,9 @@ def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio,
 
         # Store the entire video predictions (without extended frames) in a csv file
         frame_names = [f"frame_{i}.png" for i in range(len(airway_labels))]
-
         temp_prediction_dict = {"Frame": frame_names, "Airway Prediction": airway_predictions[:len(video_frames)]}
         all_predictions_df = pd.DataFrame(temp_prediction_dict)
-
-        directory_path = pathlib.Path(f"{data_path}/test_set_predictions")
-        directory_path.mkdir(exist_ok=True)
-
         all_predictions_df.to_csv(f"{directory_path}/Predictions_Patient_001_{test_sequences[video_counter]}.csv", index=False, mode='a')
-
-        # Argmax on one hot encoded ground truth values
-        airway_labels = np.argmax(airway_labels, axis=1)
 
         # Store all targets in a all targets list
         all_targets.append(airway_labels.tolist())
@@ -210,12 +199,10 @@ def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio,
 
     return all_predictions, all_targets
 
-
 def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames, data_path, model_name):
     # Create path to store csv files with predictions and labels for the given model
     directory_path = pathlib.Path(f"{data_path}/test_set_predictions/{model_name}")
     if os.path.exists(directory_path):
-        print("Directory exists")
         shutil.rmtree(directory_path)
     os.makedirs(directory_path)
 
@@ -233,7 +220,6 @@ def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames, 
 
         # Handle stack edge case to make sure every stack has length num_frames
         extended_video_frames = copy.deepcopy(video_frames)
-
         num_left_over_frames = (num_frames * test_slide_ratio) - len(video_frames) % (num_frames * test_slide_ratio)
 
         if num_left_over_frames != 0:
@@ -244,49 +230,41 @@ def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames, 
 
         # Go through the frames with a given test slide ratio and number of frames in a stack
         for i in range(0, len(extended_video_frames), num_frames * test_slide_ratio):
+
             # Create a stack containing a given number of frames with a given slide ratio between the frames
             stack = extended_video_frames[i:i + (num_frames * test_slide_ratio): test_slide_ratio]
-            print("Stack shape: ", stack.shape)
+
             # Reshape stack to 5D setting batch size to 1
             stack_shape = stack.shape
             stack_5D = stack.reshape(1, stack_shape[0], stack_shape[1], stack_shape[2], stack_shape[3])
-            print("STACK 5D: ", stack_5D.shape)
+
             # Send Tensor to GPU
             stack_5D = to_cuda(stack_5D)
 
             torch.manual_seed(42)
 
             # Send stack into the model and get predictions
-            predictions_airway, predictions_direction = model(stack_5D)  # (1, 5, 27), (1, 5, 2)
-            print("Pred airway: ", predictions_airway.shape)
-            print("Pred direction: ", predictions_direction.shape)
+            predictions_airway, predictions_direction = model(stack_5D)  # out: (1, 5, 27), (1, 5, 2)
 
             # Remove batch dim
-            predictions_airway = torch.squeeze(predictions_airway)  # (5, 27)
-            predictions_direction = torch.squeeze(predictions_direction)  # (5, 2)
-            print("Pred airway no batch: ", predictions_airway.shape)
-            print("Pred direction no batch: ", predictions_direction.shape)
+            predictions_airway = torch.squeeze(predictions_airway)  # out: (frames in stack, 27)
+            predictions_direction = torch.squeeze(predictions_direction)  # out (frames in stack, 2)
 
             # Softmax
             probabilities_airway = torch.softmax(predictions_airway, dim=-1).detach().cpu()    # (50, 27)
             probabilities_direction = torch.softmax(predictions_direction, dim=-1).detach().cpu()   # (50, 2)
-            print("Softmax airway: ", probabilities_airway.shape)
-            print("Softmax direction: ", probabilities_direction.shape)
 
             # Free memory
             del predictions_airway, predictions_direction
 
             # Argmax
-            predictions_airway = np.argmax(probabilities_airway, axis=-1)  # (5)
-            predictions_direction = np.argmax(probabilities_direction, axis=-1)  # (5)
-            print("ARGMAX Pred airway: ", predictions_airway.shape)
-            print("ARGMAX Pred direction: ", predictions_direction.shape)
+            predictions_airway = torch.argmax(probabilities_airway, axis=-1)  # (5)
+            predictions_direction = torch.argmax(probabilities_direction, axis=-1)  # (5)
+
 
             # Interpolate - Resize
             full_stack_predictions_airway = scipy.ndimage.zoom(predictions_airway, zoom=(test_slide_ratio), order=0)  # [50]
             full_stack_predictions_direction = scipy.ndimage.zoom(predictions_direction, zoom=(test_slide_ratio), order=0)  # [50]
-            print("Zoom Pred airway: ", predictions_airway.shape)
-            print("Zoom Pred direction: ", predictions_direction.shape)
 
             # Store stack predictions in the current video predictions list
             airway_predictions += full_stack_predictions_airway.tolist()  # airway_predictions: [[stack1], [stack2], [stack3], [stack4] ... [stack16]]

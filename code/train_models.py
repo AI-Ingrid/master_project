@@ -697,7 +697,7 @@ class NavigationNetTrainer:
 
     def load_model(self):
         model_path = self.model_dir.joinpath("best_model.pt")
-        # TODO: dette blir torch script model og ikke torch model
+        # TODO inference_device
         self.model = torch.jit.load(model_path, map_location=torch.device('cuda'))
 
 

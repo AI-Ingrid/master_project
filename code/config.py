@@ -48,8 +48,8 @@ test_split = 0.1  # Fraction that split data into test data
 validation_split = 0.2  # Fraction that split data into validation data
 split_the_data = False  # Split videos into train, test or validation
 shuffle_dataset = True  # Only true when using the baseline model
-num_frames_in_stack = 10  # Num frames in a stack that gets sent into RNN
-slide_ratio_in_stack = 10  # Ratio of slide between frames in a stack
+num_frames_in_stack = 50  # Num frames in a stack that gets sent into RNN
+slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack
 
 # Neural nets details
 num_airway_segment_classes = 27
@@ -76,6 +76,7 @@ gamma = 2.0
 use_focal_loss = True
 
 # Testing trained model
+use_test_dataloader = True
 load_best_model = True
 convert_to_onnx = True
 test_slide_ratio_in_stack = slide_ratio_in_stack
@@ -101,7 +102,7 @@ train_plot_name = f"{date_and_time}_{dataset_type}_{model_type}_fps_{fps}"
 test_plot_path = f"{root_directory_path}/plots/testing/"
 confusion_metrics_name = f"{date_and_time}_confusion_metrics_{dataset_type}_{model_type}_fps_{fps}"
 model_path = f"{root_directory_path}/models/"
-model_name = f"{model_type}_frames_{num_frames_in_stack}_slide_{slide_ratio_in_stack}_features_{num_features_extracted}_hidden_size_{num_memory_nodes}_batch_size_{batch_size}_epochs_{epochs}_focal_loss_{use_focal_loss}"
+model_name = f"{model_type}_alexnet_frames_{num_frames_in_stack}_slide_{slide_ratio_in_stack}_features_{num_features_extracted}_hidden_size_{num_memory_nodes}_batch_size_{batch_size}_epochs_{epochs}_focal_loss_{use_focal_loss}"
 test_plot_path = f"{root_directory_path}/plots/testing/{model_name}"
 
 #tensorboard --logdir="/cluster/home/ingrikol/master/models/frames_5_slide_10_stacks_1024_features_512_LSTM_cells_1_batchsize_16_epochs_2000_focal_loss_False"

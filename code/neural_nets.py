@@ -1,6 +1,8 @@
 import torchvision.models
 from torch import nn
 import torch
+import torch.nn.functional as F
+
 
 
 class TimeDistributed(nn.Module):
@@ -11,18 +13,28 @@ class TimeDistributed(nn.Module):
 
     def forward(self, X):
         """
-        Reshape 5 dim input ([batch_dim, time_steps, height, width, channels]) into 4 dim
-        ([batch_dim * time_steps, height, width, channels]) by merging columns batch_size and time_steps,
+        Reshape 5 dim input ([batch_dim, time_steps, channels, height, width]) into 4 dim
+        ([batch_dim * time_steps, channels, height, width]) by merging columns batch_size and time_steps,
         such that the feature extractor can handle the input. When features are returned in a 2D output, the output
         is reshaped to 3D ([batch_size=16, num_frames=5, features=128])
         """
         # Reshape to 4 dim
         X_reshaped = X.contiguous().view((-1,) + self.org_shape[2:])  # [batch_size * num_frames_in_stack, RGB, height, width]
+        #print("X_RESHAPED: ", X_reshaped.shape)
         output = self.feature_extractor(X_reshaped.float())  # [batch_size * num_frames_in_stack, num_features]
-
+        #print("Output resnet: ", output.shape)
         # Reshape to 3D
         output_reshaped = output.contiguous().view((-1, self.org_shape[1]) + (output.shape[-1],))  # [8, 10, 128]
+        #print("RESHAPED OUTPUT: ", output_reshaped.shape)
         return output_reshaped
+
+
+class AdaptiveAvgPooling(nn.Module):
+    def __init__(self):
+        super(AdaptiveAvgPooling, self).__init__()
+
+    def forward(self, x):
+        return torch.mean(x.view(x.size(0), x.size(1), -1), dim=2)
 
 
 class Baseline(nn.Module):
@@ -116,8 +128,11 @@ class NavigationNet(nn.Module):
         self.shape = tuple((batch_size, num_frames_in_stack, 3, frame_dimension[0], frame_dimension[1]))
 
         # Feature extractor: resnet18
-        self.feature_extractor = torchvision.models.resnet18('IMAGENET1K_V1')
-        self.feature_extractor.fc = nn.Linear(512, self.num_features, bias=True)
+        #self.feature_extractor = torchvision.models.resnet18('IMAGENET1K_V1')  # 512
+        self.feature_extractor = torchvision.models.alexnet(weights='IMAGENET1K_V1').features # 1000
+        self.feature_extractor.flatten = AdaptiveAvgPooling()
+        #print(self.feature_extractor)
+
         self.time_distributed = TimeDistributed(self.feature_extractor, self.shape)
 
         # Recurrent Neural Network: LSTM
@@ -149,12 +164,6 @@ class NavigationNet(nn.Module):
         for param in self.time_distributed.parameters():
             param.requires_grad = True
         for param in self.feature_extractor.parameters():
-            param.requires_grad = False
-        for param in self.feature_extractor.layer3.parameters():
-            param.requires_grad = True
-        for param in self.feature_extractor.layer4.parameters():
-            param.requires_grad = True
-        for param in self.feature_extractor.fc.parameters():
             param.requires_grad = True
         for param in self.airway_classifier.parameters():
             param.requires_grad = True
@@ -162,6 +171,7 @@ class NavigationNet(nn.Module):
             param.requires_grad = True
 
     def forward(self, X):
+        #print("NETWORK INPUT: ", X.shape)
         # Feature extractor
         X = self.time_distributed(X)  # [batch_size, features]
 

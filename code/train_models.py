@@ -70,7 +70,6 @@ def compute_f1_and_loss_for_airway(
             # Calculate focal loss
             if use_focal_loss:
                 pt_airway = torch.exp(-cross_entropy_loss_airway)
-
                 focal_loss_airway = (alpha_airway * (1 - pt_airway) ** gamma * cross_entropy_loss_airway).mean()
 
                 # Summarize over all batches
@@ -378,9 +377,6 @@ class BaselineTrainer:
         Trains the model for [self.epochs] epochs.
         """
 
-        def should_validate_model():
-            return self.global_step % self.num_steps_per_val == 0
-
         for epoch in range(self.epochs):
             self.epoch = epoch
             print("Epoch: ", epoch)
@@ -416,10 +412,9 @@ class BaselineTrainer:
             model = torch.jit.script(self.model)
             torch.jit.save(model, model_path)
 
-    def load_model(self):
+    def load_model(self, inference_device):
         model_path = self.model_dir.joinpath("best_model.pt")
-        # TODO: dette blir torch script model og ikke torch model
-        self.model = torch.jit.load(model_path, map_location=torch.device('cuda'))
+        self.model = torch.jit.load(model_path, map_location=torch.device(inference_device))
 
 class NavigationNetTrainer:
 
@@ -581,7 +576,7 @@ class NavigationNetTrainer:
 
         # Compute loss and accuracy for airway
         else:
-            train_airway_loss, train_airway_f1,  = compute_f1_and_loss_for_airway(dataloader=self.train_dataloader,
+            train_airway_loss, train_airway_f1  = compute_f1_and_loss_for_airway(dataloader=self.train_dataloader,
                                                                                   model=self.model,
                                                                                   loss_criterion=self.loss_criterion,
                                                                                   num_airway_segment_classes=self.num_airway_segment_classes,
@@ -594,11 +589,9 @@ class NavigationNetTrainer:
             # Store training accuracy in dictionary
             self.train_history["airway_f1"][self.global_step] = train_airway_f1
 
-            train_combined_loss = compute_combined_loss(train_airway_loss, 0)
-
             # Store training accuracy in Tensorboard
             self.tensorboard_writer.add_scalar("train airway loss", train_airway_loss, self.global_step)
-            self.tensorboard_writer.add_scalar("train combined loss", train_combined_loss, self.global_step)
+            self.tensorboard_writer.add_scalar("train combined loss", train_airway_loss, self.global_step)
             self.tensorboard_writer.add_scalar("train airway f1", train_airway_f1, self.global_step)
 
             # Compute validation loss and accuracy for airway and direction
@@ -612,17 +605,16 @@ class NavigationNetTrainer:
                                                                             num_frames_in_stack=self.num_frames_in_stack,
                                                                             batch_size=self.batch_size)
 
-            val_combined_loss = compute_combined_loss(val_airway_loss, 0)
-
             # Store validation loss and F1 in dictionary
             self.validation_history["airway_segment_loss"][self.global_step] = val_airway_loss
-            self.validation_history["combined_loss"][self.global_step] = val_combined_loss
+            self.validation_history["combined_loss"][self.global_step] = val_airway_loss
             self.validation_history["airway_f1"][self.global_step] = val_airway_f1
 
             # Store validation loss and f1 in Tensorboard
             self.tensorboard_writer.add_scalar("validation airway loss", val_airway_loss, self.global_step)
-            self.tensorboard_writer.add_scalar("validation combined loss", val_combined_loss, self.global_step)
+            self.tensorboard_writer.add_scalar("validation combined loss", val_airway_loss, self.global_step)
             self.tensorboard_writer.add_scalar("validation airway f1", val_airway_f1, self.global_step)
+
             used_time = time.time() - self.start_time
             self.tensorboard_writer.add_scalar("used time", used_time, self.global_step)
 
@@ -669,6 +661,7 @@ class NavigationNetTrainer:
         # Forward pass DIRECTION
         if self.classify_direction:
             predictions_airway, predictions_direction = self.model(X_batch)
+
             # Reshape 3D to 2D for the loss function
             shape_direction = (self.batch_size * self.num_frames_in_stack, self.num_direction_classes)
             predictions_direction = predictions_direction.reshape(shape_direction)  # [80, 2]
@@ -683,7 +676,6 @@ class NavigationNetTrainer:
                 pt_direction = torch.exp(-direction_loss)
                 focal_loss_direction = (self.alpha_direction * (1 - pt_direction) ** self.gamma * direction_loss)
                 direction_loss = focal_loss_direction.mean()
-            print("Direction loss within if: ", direction_loss)
         else:
             predictions_airway = self.model(X_batch)
             direction_loss = 0 # When not classifying direction
@@ -705,7 +697,6 @@ class NavigationNetTrainer:
 
         # Compute combined loss
         combined_loss = compute_combined_loss(airway_loss, direction_loss)
-        print("Direction loss outside if: ", direction_loss)
 
         # Backpropagation
         combined_loss.backward()
@@ -735,6 +726,7 @@ class NavigationNetTrainer:
                 self.train_history["direction_loss"][self.global_step] = direction_loss
                 self.train_history["combined_loss"][self.global_step] = combined_loss
 
+                # Increase global step
                 self.global_step += 1
 
             # Compute loss/accuracy for validation set

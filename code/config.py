@@ -46,7 +46,7 @@ use_random_stack_generator = False
 test_split = 0.1  # Fraction that split data into test data
 validation_split = 0.1  # Fraction that split data into validation data
 split_the_data = False  # Split videos into train, test or validation
-num_frames_in_stack = 10  # Num frames in a stack that gets sent into RNN
+num_frames_in_stack = 50  # Num frames in a stack that gets sent into RNN
 slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack
 
 # Neural nets details
@@ -60,7 +60,7 @@ use_stateful_LSTM = False
 os.environ["CUDA_VISIBLE_DEVICES"] = "2"  # "0", "1" or "2"
 perform_training = True
 classify_direction = True
-epochs = 1
+epochs = 5000
 batch_size = 8
 learning_rate = 1e-3 # 1e-4 for å finetune features etter early stopping har kicka inn med Adam i følge andre
 early_stop_count = 100
@@ -91,7 +91,7 @@ relabeled_csv_videos_path = f"{data_path}/relabeled_videos_csv/"
 dataset_path = f"{data_path}/datasets/"
 
 # Training and Testing paths
-model_type = "blomst"  # {'baseline', 'blomst', 'boble', 'belle'}
+model_type = "belle"  # {'baseline', 'blomst', 'boble', 'belle'}
 date_and_time = datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
 train_plot_path = f"{root_directory_path}/plots/training/"
 train_plot_name = f"{date_and_time}_{dataset_type}_{model_type}_fps_{fps}"

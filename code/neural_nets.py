@@ -104,9 +104,9 @@ class StatefulLSTM(nn.Module):
         X, (hidden_state, current_state) = self.lstm(X, (hidden_state, current_state))
         return X, (hidden_state, current_state)
 
-class NavigationNet(nn.Module):
+class NoDirectionNavigationNet(nn.Module):
     def __init__(self, num_memory_nodes, num_features, num_stacked_LSTMs, use_stateful_LSTM, num_frames_in_stack,
-                 num_airway_segment_classes, num_direction_classes, batch_size, frame_dimension, classify_direction):
+                 num_airway_segment_classes, batch_size, frame_dimension):
         super().__init__()
         self.num_memory_nodes = num_memory_nodes
         self.num_features = num_features
@@ -114,7 +114,6 @@ class NavigationNet(nn.Module):
         self.use_stateful_LSTM = use_stateful_LSTM
         self.num_frames_in_stack = num_frames_in_stack
         self.num_airway_segment_classes = num_airway_segment_classes
-        self.classify_direction = classify_direction
         self.shape = tuple((batch_size, num_frames_in_stack, 3, frame_dimension[0], frame_dimension[1]))
 
         # Feature extractor: Alexnet
@@ -150,19 +149,73 @@ class NavigationNet(nn.Module):
         for param in self.airway_classifier.parameters():
             param.requires_grad = True
 
-        # Handle an additional classification: Direction
-        if self.classify_direction:
-            self.num_direction_classes = num_direction_classes
+    def forward(self, X):
+        # Feature extractor
+        X = self.time_distributed(X)  # [batch_size, features]
 
-            # Classifier Direction
-            self.direction_classifier = nn.Sequential(
-                nn.Linear(self.num_memory_nodes, 128),
-                nn.ReLU(),
-                nn.Linear(128, 32),
-                nn.ReLU(),
-                nn.Linear(32, self.num_direction_classes),
-            )
-            for param in self.direction_classifier.parameters():
+        # Handle Temporal data
+        X = self.lstm(X)  # [batch_size, num_frames_in_stack, output_size]
+
+        # Classifier
+        airway = self.airway_classifier(X)   # [batch_size, num_frames_in_stack, airway_classes]
+
+        return airway
+
+class DirectionNavigationNet(nn.Module):
+    def __init__(self, num_memory_nodes, num_features, num_stacked_LSTMs, use_stateful_LSTM, num_frames_in_stack,
+                 num_airway_segment_classes, num_direction_classes, batch_size, frame_dimension):
+        super().__init__()
+        self.num_memory_nodes = num_memory_nodes
+        self.num_features = num_features
+        self.num_stacked_LSTMs = num_stacked_LSTMs
+        self.use_stateful_LSTM = use_stateful_LSTM
+        self.num_frames_in_stack = num_frames_in_stack
+        self.num_airway_segment_classes = num_airway_segment_classes
+        self.num_direction_classes = num_direction_classes
+        self.shape = tuple((batch_size, num_frames_in_stack, 3, frame_dimension[0], frame_dimension[1]))
+
+        # Feature extractor: Alexnet
+        self.feature_extractor = torchvision.models.alexnet(weights='IMAGENET1K_V1').features # 1000
+        self.feature_extractor.flatten = AdaptiveAvgPooling()
+
+        # Handle temporal axis: TimeDistributed
+        self.time_distributed = TimeDistributed(self.feature_extractor, self.shape)
+
+        # Recurrent Neural Network: LSTM
+        if self.use_stateful_LSTM:
+            print(" - Using Stateful LSTM -")
+            self.lstm = StatefulLSTM(self.num_features, self.num_memory_nodes, self.num_stacked_LSTMs)
+        else:
+            self.lstm = LSTM(self.num_features, self.num_memory_nodes, self.num_stacked_LSTMs)
+
+        # Classifier Airway
+        self.airway_classifier = nn.Sequential(
+            nn.Linear(self.num_memory_nodes, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, self.num_airway_segment_classes),
+        )
+
+        # Classifier Direction
+        self.direction_classifier = nn.Sequential(
+            nn.Linear(self.num_memory_nodes, 128),
+            nn.ReLU(),
+            nn.Linear(128, 32),
+            nn.ReLU(),
+            nn.Linear(32, self.num_direction_classes),
+        )
+
+        # Handle training for certain layers
+        for param in self.time_distributed.parameters():
+            param.requires_grad = False
+        for param in self.feature_extractor.parameters():
+            param.requires_grad = False
+        for param in self.lstm.parameters():
+            param.requires_grad = True
+        for param in self.airway_classifier.parameters():
+            param.requires_grad = True
+        for param in self.direction_classifier.parameters():
                 param.requires_grad = True
 
     def forward(self, X):
@@ -176,70 +229,49 @@ class NavigationNet(nn.Module):
         airway = self.airway_classifier(X)   # [batch_size, num_frames_in_stack, airway_classes]
 
         # Handle an additional classification: Direction
-        if self.classify_direction:
-            direction = self.direction_classifier(X)    # [batch_size, num_frames_in_stack, direction_classes]
-            return airway, direction
+        direction = self.direction_classifier(X)    # [batch_size, num_frames_in_stack, direction_classes]
 
-        return airway
+        return airway, direction
 
 def create_neural_net(num_memory_nodes, num_features_extracted, model_type, num_frames_in_stack, num_airway_segment_classes,
                       num_direction_classes, frame_dimension, batch_size, use_stateful_LSTM, classify_direction):
 
     print("-- NEURAL NET --")
+    print(f"Model: {model_type}")
+
     # Baseline -> No LSTM and no classifying of direction
     if model_type == 'baseline':
-        print("Model: Baseline")
         neural_net = Baseline(num_features=num_features_extracted,
                               num_frames_in_stack=num_frames_in_stack,
                               num_airway_segment_classes=num_airway_segment_classes,
                               batch_size=batch_size,
-                              frame_dimension=frame_dimension,
-                              )
-    # Blomst -> 1 LSTM cell
-    elif model_type == 'blomst':
-        print("Model: Blomst")
-        neural_net = NavigationNet(num_memory_nodes=num_memory_nodes,
-                                   num_features=num_features_extracted,
-                                   num_stacked_LSTMs=1,
-                                   use_stateful_LSTM=use_stateful_LSTM,
-                                   num_frames_in_stack=num_frames_in_stack,
-                                   num_airway_segment_classes=num_airway_segment_classes,
-                                   num_direction_classes=num_direction_classes,
-                                   batch_size=batch_size,
-                                   frame_dimension=frame_dimension,
-                                   classify_direction=classify_direction,
-                                   )
-    # Boble -> 2 LSTM cells
-    elif model_type == 'boble':
-        print("Model: Boble")
-        neural_net = NavigationNet(num_memory_nodes=num_memory_nodes,
-                                   num_features=num_features_extracted,
-                                   num_stacked_LSTMs=2,
-                                   use_stateful_LSTM=use_stateful_LSTM,
-                                   num_frames_in_stack=num_frames_in_stack,
-                                   num_airway_segment_classes=num_airway_segment_classes,
-                                   num_direction_classes=num_direction_classes,
-                                   batch_size=batch_size,
-                                   frame_dimension=frame_dimension,
-                                   classify_direction=classify_direction,
-                                   )
-    # Belle -> 3 LSTM cells
-    elif model_type == 'belle':
-        print("Model: Belle")
-        neural_net = NavigationNet(num_memory_nodes=num_memory_nodes,
-                                   num_features=num_features_extracted,
-                                   num_stacked_LSTMs=3,
-                                   use_stateful_LSTM=use_stateful_LSTM,
-                                   num_frames_in_stack=num_frames_in_stack,
-                                   num_airway_segment_classes=num_airway_segment_classes,
-                                   num_direction_classes=num_direction_classes,
-                                   batch_size=batch_size,
-                                   frame_dimension=frame_dimension,
-                                   classify_direction=classify_direction,
-                                   )
+                              frame_dimension=frame_dimension,)
 
+    # Blomst, Boble or Belle -> with LSTMs
     else:
-        print("Model type entered: ", model_type, ". But should be 'baseline', 'blomst', 'boble' or 'belle'")
-        return
+        # Blomst
+        if classify_direction:
+            neural_net = DirectionNavigationNet(num_memory_nodes=num_memory_nodes,
+                                                num_features=num_features_extracted,
+                                                num_stacked_LSTMs=1,
+                                                use_stateful_LSTM=use_stateful_LSTM,
+                                                num_frames_in_stack=num_frames_in_stack,
+                                                num_airway_segment_classes=num_airway_segment_classes,
+                                                num_direction_classes=num_direction_classes,
+                                                batch_size=batch_size,
+                                                frame_dimension=frame_dimension,
+                                                )
+        # Boble or Belle
+        else:
+            neural_net = NoDirectionNavigationNet(num_memory_nodes=num_memory_nodes,
+                                                  num_features=num_features_extracted,
+                                                  num_stacked_LSTMs=1,
+                                                  use_stateful_LSTM=use_stateful_LSTM,
+                                                  num_frames_in_stack=num_frames_in_stack,
+                                                  num_airway_segment_classes=num_airway_segment_classes,
+                                                  batch_size=batch_size,
+                                                  frame_dimension=frame_dimension,
+                                                  )
+
 
     return neural_net

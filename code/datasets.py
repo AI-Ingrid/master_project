@@ -1,5 +1,5 @@
 from preprocess import *
-from utils.data_utils import create_stack_dict
+from utils.data_utils import create_stack_dict, plot_stack
 from torch.utils.data import Dataset, DataLoader
 from pathlib import PurePath
 import torch
@@ -24,8 +24,6 @@ def separate_dataframe(video_df, transform, num_airway_segment_classes, num_dire
 
     # Convert to Tensor
     frames = torch.tensor(new_frames)  # [num_frames=5, channels=3, width=384, height=384]
-    # TODO: hvorfor hadde vi denne kommandoen her? Vi trenger den ikke?
-    #frames = torch.moveaxis(frames, 3, 1)
 
     # Not one-hot encode the labels for the test set
     if is_test_dataset:
@@ -97,7 +95,6 @@ class StackGeneratorDataset(Dataset):
         self.transform = transform
         self.total_stacks, self.stack_dict, self.overlap_dict = create_stack_dict(self.file_list, self.stack_size,
                                                                                   self.slide_ratio)
-
     def __len__(self):
         return self.total_stacks
 
@@ -212,56 +209,92 @@ def split_data(validation_split, test_split, raw_dataset_path, dataset_path, spl
 
 
 def create_datasets_and_dataloaders(validation_split, test_split, raw_dataset_path, dataset_path,
-                                    num_stacks, num_frames_in_stack, slide_ratio_in_stack, test_slide_ratio_in_stack,
-                                    batch_size,
-                                    shuffle_dataset, split_the_data, num_airway_segment_classes, num_direction_classes,
-                                    frame_dimension, use_test_dataloader):
+                                    num_stacks, num_frames_in_stack, slide_ratio_in_stack,
+                                    test_slide_ratio_in_stack, batch_size,
+                                    split_the_data, num_airway_segment_classes, num_direction_classes,
+                                    frame_dimension, use_test_dataloader, plot_dataset_stacks,
+                                    use_random_stack_generator):
     print("-- DATASETS --")
     # Split data in Train, Test and Validation
     train_csv_files, test_csv_files, validation_csv_files = split_data(validation_split=validation_split,
-                                                                       test_split=test_split,
-                                                                       raw_dataset_path=raw_dataset_path,
-                                                                       dataset_path=dataset_path,
-                                                                       split_the_data=split_the_data)
+                                                                    test_split=test_split,
+                                                                    raw_dataset_path=raw_dataset_path,
+                                                                    dataset_path=dataset_path,
+                                                                    split_the_data=split_the_data)
 
     # Set up transforming details for the dataset to output
-    transform = transforms.Compose([
-        transforms.ToPILImage(),
-        transforms.Resize(frame_dimension),
-        transforms.ToTensor(),
-    ])
+    transform = transforms.Compose([transforms.ToPILImage(),
+                                    transforms.Resize(frame_dimension),
+                                    transforms.ToTensor(),])
 
-    train_dataset = StackGeneratorDataset(file_list=train_csv_files, stack_size=num_frames_in_stack,
-                                          slide_ratio=test_slide_ratio_in_stack,
-                                          num_airway_classes=num_airway_segment_classes,
-                                          num_direction_classes=num_direction_classes,
-                                          transform=transform)
-
-    train_dataloader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=shuffle_dataset, drop_last=True)
-
-
-    validation_dataset = StackGeneratorDataset(file_list=validation_csv_files, stack_size=num_frames_in_stack,
+    # Use datasets with random stacks from random videos - enables sliding window
+    if use_random_stack_generator:
+        train_dataset = RandomGeneratorDataset(file_list=train_csv_files,
+                                               num_stacks=num_stacks,
+                                               num_frames=num_frames_in_stack,
                                                slide_ratio=slide_ratio_in_stack,
                                                num_airway_classes=num_airway_segment_classes,
                                                num_direction_classes=num_direction_classes,
-                                               transform=transform)
+                                               transform=transform,)
 
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=batch_size, shuffle=shuffle_dataset,
+        validation_dataset = RandomGeneratorDataset(file_list=train_csv_files,
+                                                    num_stacks=num_stacks,
+                                                    num_frames=num_frames_in_stack,
+                                                    slide_ratio=slide_ratio_in_stack,
+                                                    num_airway_classes=num_airway_segment_classes,
+                                                    num_direction_classes=num_direction_classes,
+                                                    transform=transform,)
+
+    # Use dataset with given stacks - no sliding window
+    else:
+        train_dataset = StackGeneratorDataset(file_list=train_csv_files,
+                                              stack_size=num_frames_in_stack,
+                                              slide_ratio=slide_ratio_in_stack,
+                                              num_airway_classes=num_airway_segment_classes,
+                                              num_direction_classes=num_direction_classes,
+                                              transform=transform)
+
+        validation_dataset = StackGeneratorDataset(file_list=validation_csv_files,
+                                                   stack_size=num_frames_in_stack,
+                                                   slide_ratio=slide_ratio_in_stack,
+                                                   num_airway_classes=num_airway_segment_classes,
+                                                   num_direction_classes=num_direction_classes,
+                                                   transform=transform)
+
+    # Create dataloaders for train and validation datasets
+    train_dataloader = DataLoader(dataset=train_dataset,
+                                  batch_size=batch_size,
+                                  shuffle=True,
+                                  drop_last=True)
+
+    validation_dataloader = DataLoader(dataset=validation_dataset,
+                                       batch_size=batch_size,
+                                       shuffle=True,
                                        drop_last=True)
 
     # Create Test Dataset
     if use_test_dataloader:
-        test_dataloader = TestDataSet(file_list=test_csv_files, transform=transform,
+        test_dataloader = TestDataSet(file_list=test_csv_files,
+                                      transform=transform,
                                       num_airway_classes=num_airway_segment_classes,
                                       num_direction_classes=num_direction_classes)
     else:
-        test_dataset = StackGeneratorDataset(file_list=test_csv_files, stack_size=num_frames_in_stack,
-                                             slide_ratio=slide_ratio_in_stack,
+        test_dataset = StackGeneratorDataset(file_list=test_csv_files,
+                                             stack_size=num_frames_in_stack,
+                                             slide_ratio=test_slide_ratio_in_stack,
                                              num_airway_classes=num_airway_segment_classes,
                                              num_direction_classes=num_direction_classes,
                                              transform=transform)
 
-        test_dataloader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=shuffle_dataset,
+        test_dataloader = DataLoader(dataset=test_dataset,
+                                     batch_size=batch_size,
+                                     shuffle=False,
                                      drop_last=True)
+
+    # Plot images of stacks from the datasets
+    if plot_dataset_stacks:
+        plot_stack(train_dataloader)
+        plot_stack(validation_dataloader)
+        plot_stack(test_dataloader)
 
     return train_dataloader, validation_dataloader, test_dataloader

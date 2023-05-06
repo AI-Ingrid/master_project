@@ -13,15 +13,17 @@ from torch import nn
 from utils.test_utils import SoftmaxLayer
 from matplotlib import pyplot as plt
 import torchmetrics.classification as tm
-from train_models import compute_f1_and_loss, compute_f1_and_loss_for_baseline
+from train_models import compute_f1_and_loss_for_airway, compute_f1_and_loss_for_airway_and_direction
 import shutil
 
 def get_metrics_for_baseline(predictions, targets, num_airway_classes):
-    f1_score_airway = 0
+    f1_macro_airway = 0
+    f1_micro_airway = 0
     precision_airway = 0
     recall_airway = 0
 
-    f1_airway_segment_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_airway_classes)
+    f1_macro_airway_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_airway_classes)
+    f1_micro_airway_metric = tm.F1Score(average='micro', task='multiclass', num_classes=num_airway_classes)
 
     for index, video in enumerate(predictions):
         # Convert to tensors
@@ -32,7 +34,8 @@ def get_metrics_for_baseline(predictions, targets, num_airway_classes):
         airway_video = np.array(video)
         airway_video = torch.tensor(airway_video, dtype=torch.int64)
 
-        f1_score_airway += float(f1_airway_segment_metric(airway_video, airway_targets))
+        f1_macro_airway += float(f1_macro_airway_metric(airway_video, airway_targets))
+        f1_micro_airway += float(f1_micro_airway_metric(airway_video, airway_targets))
 
         temp_precision_airway, temp_recall_airway, _, _ = precision_recall_fscore_support(
                                                 targets[index], video, average="macro", labels=list(range(1, num_airway_classes+1)))
@@ -42,27 +45,34 @@ def get_metrics_for_baseline(predictions, targets, num_airway_classes):
         recall_airway += temp_recall_airway
 
     # Get the average for the metrics (every video is equally important)
-    average_f1_score_airway = round(f1_score_airway/len(predictions), 3)
-
+    average_f1_macro_airway = round(f1_macro_airway/len(predictions), 3)
+    average_f1_micro_airway = round(f1_micro_airway/len(predictions), 3)
     average_precision_airway = round(precision_airway/len(predictions), 3)
-
     average_recall_airway = round(recall_airway/len(predictions), 3)
 
-    print("Average F1 Macro Score Airway: ",  average_f1_score_airway)
+    print("Average F1 Macro Score Airway: ",  average_f1_macro_airway)
+    print("Average F1 Micro Score Airway: ",  average_f1_micro_airway)
     print("Average Precision Airway: ", average_precision_airway)
     print("Average Recall Airway: ", average_recall_airway)
 
 
 def get_metrics(predictions, targets, num_airway_classes, num_direction_classes):
-    f1_score_airway = 0
-    f1_score_direction = 0
+    # Initializing F1 score variables
+    f1_macro_airway = 0
+    f1_micro_airway = 0
+    f1_macro_direction = 0
+    f1_micro_direction = 0
+
+    # Initializing Precision and Recall variables
     precision_airway = 0
     precision_direction = 0
     recall_airway = 0
     recall_direction = 0
 
-    f1_airway_segment_metric = tm.F1Score(average='micro', task='multiclass', num_classes=num_airway_classes)
-    f1_direction_metric = tm.F1Score(average='micro', task='multiclass', num_classes=num_direction_classes)
+    f1_macro_airway_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_airway_classes)
+    f1_micro_airway_metric = tm.F1Score(average='micro', task='multiclass', num_classes=num_airway_classes)
+    f1_macro_direction_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_direction_classes)
+    f1_micro_direction_metric = tm.F1Score(average='micro', task='multiclass', num_classes=num_direction_classes)
 
     for index, video in enumerate(predictions):
         # Convert targets to tensors
@@ -79,13 +89,15 @@ def get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
         direction_video = np.array(video[1])
         direction_video = torch.tensor(direction_video, dtype=torch.int64) # [num_frames=5, num_classes=2]
 
-        f1_score_airway += float(f1_airway_segment_metric(airway_video, airway_targets))
-        f1_score_direction += float(f1_direction_metric(direction_video, direction_targets))
+        f1_macro_airway += float(f1_macro_airway_metric(airway_video, airway_targets))
+        f1_micro_airway += float(f1_micro_airway_metric(airway_video, airway_targets))
+        f1_macro_direction += float(f1_macro_direction_metric(direction_video, direction_targets))
+        f1_micro_direction += float(f1_micro_direction_metric(direction_video, direction_targets))
 
         temp_precision_airway, temp_recall_airway, _, _ = precision_recall_fscore_support(
-                                                targets[index][0], video[0], average="micro", labels=list(range(1, num_airway_classes+1)))
+                                                targets[index][0], video[0], average="macro", labels=list(range(1, num_airway_classes+1)))
         temp_precision_direction, temp_recall_direction, _, _ = precision_recall_fscore_support(
-                                                targets[index][1], video[1], average="micro", labels=list(range(0, num_direction_classes)))
+                                                targets[index][1], video[1], average="macro", labels=list(range(0, num_direction_classes)))
 
         # Summarize the metrics one by one
         precision_airway += temp_precision_airway
@@ -95,8 +107,10 @@ def get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
         recall_direction += temp_recall_direction
 
     # Get the average for the metrics (every video is equally important)
-    average_f1_score_airway = round(f1_score_airway/len(predictions), 3)
-    average_f1_score_direction = round(f1_score_direction/len(predictions), 3)
+    average_f1_macro_airway = round(f1_macro_airway/len(predictions), 3)
+    average_f1_micro_airway = round(f1_micro_airway/len(predictions), 3)
+    average_f1_macro_direction = round(f1_macro_direction/len(predictions), 3)
+    average_f1_micro_direction = round(f1_micro_direction/len(predictions), 3)
 
     average_precision_airway = round(precision_airway/len(predictions), 3)
     average_precision_direction = round(precision_direction/len(predictions), 3)
@@ -104,8 +118,11 @@ def get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
     average_recall_airway = round(recall_airway/len(predictions), 3)
     average_recall_direction = round(recall_direction/len(predictions), 3)
 
-    print("Average F1 Macro Score Airway: ",  average_f1_score_airway)
-    print("Average F1 Macro Score Direction: ", average_f1_score_direction)
+    print("Average F1 Macro Score Airway: ",  average_f1_macro_airway)
+    print("Average F1 Micro Score Airway: ",  average_f1_micro_airway)
+    print("Average F1 Macro Score Direction: ", average_f1_macro_direction)
+    print("Average F1 Micro Score Direction: ", average_f1_micro_direction)
+
     print("Average Precision Airway: ", average_precision_airway)
     print("Average Precision Direction: ", average_precision_direction)
     print("Average Recall Airway: ", average_recall_airway)
@@ -227,10 +244,8 @@ def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames, 
             additional_frames = [video_frames[-1]] * (num_left_over_frames)
             additional_frames = torch.stack(additional_frames, dim=0)
             extended_video_frames = torch.cat([video_frames, additional_frames], dim=0)
-
         # Go through the frames with a given test slide ratio and number of frames in a stack
         for i in range(0, len(extended_video_frames), num_frames * test_slide_ratio):
-
             # Create a stack containing a given number of frames with a given slide ratio between the frames
             stack = extended_video_frames[i:i + (num_frames * test_slide_ratio): test_slide_ratio]
 
@@ -502,12 +517,14 @@ def plot_confusion_metrics(predictions, targets, confusion_metrics_plot_path, nu
 
 
 def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_classes, num_direction_classes, data_path,
-               frame_dimension, convert_to_onnx, model_name, model_path, test_plot_path, model_type, load_best_model, use_test_dataloader):
+               frame_dimension, convert_to_onnx, model_name, model_path, test_plot_path, model_type, load_best_model,
+               use_test_dataloader, inference_device,):
     print("-- TESTING --")
+
     # Load neural net model
     if load_best_model:
         print("Loading best model")
-        trainer.load_model()
+        trainer.load_model(inference_device)
 
         # Set to inference mode -> freeze model
         torch.manual_seed(42)
@@ -516,50 +533,80 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_c
     # Convert model to ONNX
     if convert_to_onnx:
         if model_type == 'baseline':
-            convert_model_to_onnx_for_baseline(trainer.model, num_frames, frame_dimension, model_name, model_path)
+            convert_model_to_onnx_for_baseline(model=trainer.model,
+                                               num_frames=num_frames,
+                                               dimension=frame_dimension,
+                                               model_name=model_name,
+                                               model_path=model_path)
         else:
-            convert_model_to_onnx(trainer.model, num_frames, frame_dimension, model_name, model_path)
+            convert_model_to_onnx(model=trainer.model,
+                                  num_frames=num_frames,
+                                  dimension=frame_dimension,
+                                  model_name=model_name,
+                                  model_path=model_path)
 
     # Run predictions on test set
     if model_type == 'baseline':
         if use_test_dataloader:
-            predictions, targets = get_test_set_predictions_for_baseline(model=trainer.model, test_dataset=test_dataset,
-                                                                         test_slide_ratio=test_slide_ratio, num_frames=num_frames,
-                                                                         data_path=data_path, model_name=model_name)
+            predictions, targets = get_test_set_predictions_for_baseline(model=trainer.model,
+                                                                         test_dataset=test_dataset,
+                                                                         test_slide_ratio=test_slide_ratio,
+                                                                         num_frames=num_frames,
+                                                                         data_path=data_path,
+                                                                         model_name=model_name)
 
             # Get F1 Macro Score, Precision and Recall
-            get_metrics_for_baseline(predictions, targets, num_airway_classes)
+            get_metrics_for_baseline(predictions=predictions,
+                                     targets=targets,
+                                     num_airway_classes=num_airway_classes)
 
             # Plot Confusion Metrics
-            plot_confusion_metrics_for_baseline(predictions=predictions, targets=targets, confusion_metrics_plot_path=test_plot_path,
+            plot_confusion_metrics_for_baseline(predictions=predictions,
+                                                targets=targets,
+                                                confusion_metrics_plot_path=test_plot_path,
                                                 num_airway_classes=num_airway_classes)
     else:
         if use_test_dataloader:
             print("Using test dataloader")
-            predictions, targets = get_test_set_predictions(model=trainer.model, test_dataset=test_dataset,
-                                                            test_slide_ratio=test_slide_ratio, num_frames=num_frames,
-                                                            data_path=data_path, model_name=model_name)
+            predictions, targets = get_test_set_predictions(model=trainer.model,
+                                                            test_dataset=test_dataset,
+                                                            test_slide_ratio=test_slide_ratio,
+                                                            num_frames=num_frames,
+                                                            data_path=data_path,
+                                                            model_name=model_name)
 
             # Get F1 Macro Score, Precision and Recall
-            get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
+            get_metrics(predictions=predictions,
+                        targets=targets,
+                        num_airway_classes=num_airway_classes,
+                        num_direction_classes=num_direction_classes)
 
             # Plot Confusion Metrics
-            plot_confusion_metrics(predictions=predictions, targets=targets, confusion_metrics_plot_path=test_plot_path,
-                                   num_airway_classes=num_airway_classes, num_direction_classes=num_direction_classes)
+            plot_confusion_metrics(predictions=predictions,
+                                   targets=targets,
+                                   confusion_metrics_plot_path=test_plot_path,
+                                   num_airway_classes=num_airway_classes,
+                                   num_direction_classes=num_direction_classes)
         else:
-            alpha_airway = torch.Tensor([0.2, 0.5, 0.5, 1, 1, 1, 1, 1, 1, 1,
-                                         1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                                         1, 1, 1, 1, 1, 1, 1])
+            alpha_airway = torch.Tensor([0.2, 0.5, 0.5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
             alpha_direction = torch.Tensor([1, 1])
             alpha_airway = to_cuda(alpha_airway)
             alpha_direction = to_cuda(alpha_direction)
             gamma = 2.0
             use_focal_loss = True
             batch_size = 8
-            loss_airway, loss_direction, f1_airway, f1_direction = compute_f1_and_loss(dataloader=test_dataset, model=trainer.model,
-                                                                                       loss_criterion=torch.nn.functional.cross_entropy,
-                                                                                       num_airway_segment_classes=num_airway_classes, num_direction_classes=num_direction_classes,
-                                                                                       alpha_airway=alpha_airway, alpha_direction=alpha_direction, gamma=gamma, use_focal_loss=use_focal_loss,
-                                                                                       num_frames_in_stack=num_frames, batch_size=batch_size)
+            loss_airway, loss_direction, f1_airway, f1_direction = \
+                compute_f1_and_loss_for_airway_and_direction(dataloader=test_dataset,
+                                                             model=trainer.model,
+                                                             loss_criterion=torch.nn.functional.cross_entropy,
+                                                             num_airway_segment_classes=num_airway_classes,
+                                                             num_direction_classes=num_direction_classes,
+                                                             alpha_airway=alpha_airway,
+                                                             alpha_direction=alpha_direction,
+                                                             gamma=gamma,
+                                                             use_focal_loss=use_focal_loss,
+                                                             num_frames_in_stack=num_frames,
+                                                             batch_size=batch_size)
+
             print("Test Airway F1: ", f1_airway)
             print("Test Direction F1: ", f1_direction)

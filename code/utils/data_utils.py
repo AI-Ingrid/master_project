@@ -7,6 +7,17 @@ from tqdm import tqdm
 import numpy as np
 import re
 import csv
+import torchvision.transforms as T
+
+def plot_stack(dataloader):
+    for frames, (airway_labels, direction_labels) in dataloader:
+        print("Airway label: ", airway_labels[0])
+        print("Direction Label: ", direction_labels[0])
+        print(type(frames[0]))
+        transform = T.ToPILImage()
+        image = transform(float(frames[0]))
+        plt.imsave(image,'/mnt/EncryptedPathology/bronchi-navigation/master_project/Frame.png')
+        exit()
 
 
 def find_num_stacks(csv_file, stack_size, slide_ratio):

@@ -13,8 +13,8 @@ class SoftmaxLayer(nn.Module):
         super().__init__()
 
     def forward(self, X):
-        X = X[:, -1, :]  # [16, 5, 27/2] -> [16, 27/2]
-        X = torch.mean(X, dim=1)
+        #X = X[:, -1, :]  # [16, 5, 27/2] -> [16, 27/2]
+        #X = torch.mean(X, dim=1)
         X = torch.softmax(X, dim=-1)
         return X
 

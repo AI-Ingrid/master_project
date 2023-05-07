@@ -54,12 +54,13 @@ num_airway_segment_classes = 27 # Don't change these
 num_direction_classes = 2 # Don't change these
 num_features_extracted = 256
 num_memory_nodes = 128  # Max = 512
-use_stateful_LSTM = False
+use_stateful_LSTM = True
+num_LSTM_cells = 1
 
 # Training specifications
 os.environ["CUDA_VISIBLE_DEVICES"] = "2"  # "0", "1" or "2"
 perform_training = True
-classify_direction = True
+classify_direction = False
 epochs = 5000
 batch_size = 8
 learning_rate = 1e-3 # 1e-4 for å finetune features etter early stopping har kicka inn med Adam i følge andre
@@ -68,14 +69,14 @@ num_stacks = 1024  # Must be divisible by batch size
 alpha_airway = torch.Tensor([0.2, 0.5, 0.5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
 alpha_direction = torch.Tensor([1, 1])
 gamma = 2.0
-use_focal_loss = True
+use_focal_loss = False
 
 # Testing trained model
 use_test_dataloader = True
 load_best_model = True
 convert_to_onnx = True
-num_test_frames_in_stack = num_frames_in_stack
-test_slide_ratio_in_stack = slide_ratio_in_stack
+num_frames_in_test_stack = num_frames_in_stack
+slide_ratio_in_test_stack = slide_ratio_in_stack
 plot_dataset_stacks = False
 inference_device = 'cuda'  # or 'cpu'
 
@@ -91,7 +92,7 @@ relabeled_csv_videos_path = f"{data_path}/relabeled_videos_csv/"
 dataset_path = f"{data_path}/datasets/"
 
 # Training and Testing paths
-model_type = "belle"  # {'baseline', 'blomst', 'boble', 'belle'}
+model_type = "blomst"  # {'baseline', 'blomst', 'boble', 'belle'}
 date_and_time = datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
 train_plot_path = f"{root_directory_path}/plots/training/"
 train_plot_name = f"{date_and_time}_{dataset_type}_{model_type}_fps_{fps}"

@@ -15,6 +15,7 @@ from matplotlib import pyplot as plt
 import torchmetrics.classification as tm
 from train_models import compute_f1_and_loss_for_airway, compute_f1_and_loss_for_airway_and_direction
 import shutil
+from typing import Tuple
 
 def get_metrics_for_baseline(predictions, targets, num_airway_classes):
     f1_macro_airway = 0
@@ -129,7 +130,7 @@ def get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
     print("Average Recall Direction: ", average_recall_direction)
 
 
-def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio, num_frames, data_path, model_name):
+def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio, num_frames_in_test_stack, data_path, model_name):
     # Create path to store csv files with predictions and labels for the given model
     directory_path = pathlib.Path(f"{data_path}/test_set_predictions/{model_name}")
     if os.path.exists(directory_path):
@@ -150,7 +151,7 @@ def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio,
 
         # Handle stack edge case to make sure every stack has length num_frames
         extended_video_frames = copy.deepcopy(video_frames)
-        num_left_over_frames = (num_frames * test_slide_ratio) - len(video_frames) % (num_frames * test_slide_ratio)
+        num_left_over_frames = (num_frames_in_test_stack * test_slide_ratio) - len(video_frames) % (num_frames_in_test_stack * test_slide_ratio)
 
         if num_left_over_frames != 0:
             # Copy last frames to get equal stack length
@@ -159,10 +160,10 @@ def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio,
             extended_video_frames = torch.cat([video_frames, additional_frames], dim=0)
 
         # Go through the frames with a given test slide ratio and number of frames in a stack
-        for i in range(0, len(extended_video_frames), num_frames * test_slide_ratio):
+        for i in range(0, len(extended_video_frames), num_frames_in_test_stack * test_slide_ratio):
 
             # Create a stack containing a given number of frames with a given slide ratio between the frames
-            stack = extended_video_frames[i:i + (num_frames * test_slide_ratio): test_slide_ratio]
+            stack = extended_video_frames[i:i + (num_frames_in_test_stack * test_slide_ratio): test_slide_ratio]
 
             # Reshape stack to 5D setting batch size to 1
             stack_shape = stack.shape
@@ -216,7 +217,8 @@ def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio,
 
     return all_predictions, all_targets
 
-def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames, data_path, model_name):
+
+def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames_in_test_stack, data_path, model_name):
     # Create path to store csv files with predictions and labels for the given model
     directory_path = pathlib.Path(f"{data_path}/test_set_predictions/{model_name}")
     if os.path.exists(directory_path):
@@ -237,17 +239,23 @@ def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames, 
 
         # Handle stack edge case to make sure every stack has length num_frames
         extended_video_frames = copy.deepcopy(video_frames)
-        num_left_over_frames = (num_frames * test_slide_ratio) - len(video_frames) % (num_frames * test_slide_ratio)
+        num_left_over_frames = (num_frames_in_test_stack * test_slide_ratio) - len(video_frames) % (num_frames_in_test_stack * test_slide_ratio)
 
         if num_left_over_frames != 0:
             # Copy last frames to get equal stack length
             additional_frames = [video_frames[-1]] * (num_left_over_frames)
             additional_frames = torch.stack(additional_frames, dim=0)
             extended_video_frames = torch.cat([video_frames, additional_frames], dim=0)
+
+        # Initialize hidden state and cell state at the beginning of every video
+        hidden_state = torch.zeros(model.num_stacked_LSTMs, 1, model.num_memory_nodes)  # [num_layers,batch,hidden_size or H_out]
+        cell_state = torch.zeros(model.num_stacked_LSTMs, 1, model.num_memory_nodes)  # [num_layers,batch,hidden_size]
+        hidden = to_cuda((hidden_state, cell_state))
+
         # Go through the frames with a given test slide ratio and number of frames in a stack
-        for i in range(0, len(extended_video_frames), num_frames * test_slide_ratio):
+        for i in range(0, len(extended_video_frames), num_frames_in_test_stack * test_slide_ratio):
             # Create a stack containing a given number of frames with a given slide ratio between the frames
-            stack = extended_video_frames[i:i + (num_frames * test_slide_ratio): test_slide_ratio]
+            stack = extended_video_frames[i:i + (num_frames_in_test_stack * test_slide_ratio): test_slide_ratio]
 
             # Reshape stack to 5D setting batch size to 1
             stack_shape = stack.shape
@@ -259,7 +267,7 @@ def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames, 
             torch.manual_seed(42)
 
             # Send stack into the model and get predictions
-            predictions_airway, predictions_direction = model(stack_5D)  # out: (1, 5, 27), (1, 5, 2)
+            predictions_airway, predictions_direction, hidden = model(stack_5D, hidden)  # out: (1, 5, 27), (1, 5, 2)
 
             # Remove batch dim
             predictions_airway = torch.squeeze(predictions_airway)  # out: (frames in stack, 27)
@@ -305,10 +313,13 @@ def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames, 
         # Increase video counter
         video_counter += 1
 
+        # Reset the states
+        model.reset_states()
+
     return all_predictions, all_targets
 
 
-def convert_model_to_onnx_for_baseline(model, num_frames, dimension, model_name, model_path):
+def convert_model_to_onnx_for_baseline(model, num_frames_in_test_stack, dimension, model_name, model_path):
     """ Converts a trained model into an onnx model. """
     # Set path for storing models as torch scripts
     model_directory_path = pathlib.Path(model_path + model_name)
@@ -355,12 +366,12 @@ def convert_model_to_onnx_for_baseline(model, num_frames, dimension, model_name,
     # Freeze the weights
     model_for_onnx.eval()
 
-    dummy_input = torch.randn(1, num_frames, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
+    dummy_input = torch.randn(1, num_frames_in_test_stack, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
     dummy_input_cuda = to_cuda(dummy_input)
     torch.onnx.export(model_for_onnx, (dummy_input_cuda,), f'{model_path}onnx/{model_name}.onnx')
 
 
-def convert_model_to_onnx(model, num_frames, dimension, model_name, model_path):
+def convert_model_to_onnx(model, num_frames_in_test_stack, dimension, model_name, model_path):
     """ Converts a trained model into an onnx model. """
     # Set path for storing models as torch scripts
     model_directory_path = pathlib.Path(model_path + model_name)
@@ -388,11 +399,11 @@ def convert_model_to_onnx(model, num_frames, dimension, model_name, model_path):
             self.trained_model = model
             self.softmax_layer = softmax_layer
 
-        def forward(self, X):  #[16, 5, 27/2]
-            airway, direction = self.trained_model(X)
+        def forward(self, X: torch.Tensor, hidden: Tuple[torch.Tensor, torch.Tensor]):  #[16, 5, 27/2]
+            airway, direction, hidden = self.trained_model(X, hidden)
             airway = self.softmax_layer(airway)
             direction = self.softmax_layer(direction)
-            return airway, direction
+            return airway, direction, hidden
 
     # Convert the ModelForOnnx (nn.Module) to s torch script
     model_for_onnx = ModelForOnnx()
@@ -408,9 +419,14 @@ def convert_model_to_onnx(model, num_frames, dimension, model_name, model_path):
     # Freeze the weights
     model_for_onnx.eval()
 
-    dummy_input = torch.randn(1, num_frames, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
-    dummy_input_cuda = to_cuda(dummy_input)
-    torch.onnx.export(model_for_onnx, (dummy_input_cuda,), f'{model_path}onnx/{model_name}.onnx', opset_version=11)
+    dummy_input_X = torch.randn(1, num_frames_in_test_stack, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
+    dummy_input_X_cuda = to_cuda(dummy_input_X)
+    # Initialize hidden state and cell state at the beginning of every video
+    hidden_state = torch.zeros(model.num_stacked_LSTMs, 1, model.num_memory_nodes)  # [num_layers,batch,hidden_size or H_out]
+    cell_state = torch.zeros(model.num_stacked_LSTMs, 1, model.num_memory_nodes)  # [num_layers,batch,hidden_size]
+    dummy_input_hidden = to_cuda((hidden_state, cell_state))
+
+    torch.onnx.export(model_for_onnx, (dummy_input_X_cuda, dummy_input_hidden), f'{model_path}onnx/{model_name}.onnx', opset_version=11)
 
 
 def map_synthetic_frames_and_test_frames(data_path):
@@ -516,9 +532,9 @@ def plot_confusion_metrics(predictions, targets, confusion_metrics_plot_path, nu
     plt.show()
 
 
-def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_classes, num_direction_classes, data_path,
+def test_model(trainer, test_dataset, test_slide_ratio, num_frames_in_test_stack, num_airway_classes, num_direction_classes, data_path,
                frame_dimension, convert_to_onnx, model_name, model_path, test_plot_path, model_type, load_best_model,
-               use_test_dataloader, inference_device,):
+               use_test_dataloader, inference_device, ):
     print("-- TESTING --")
 
     # Load neural net model
@@ -534,13 +550,13 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_c
     if convert_to_onnx:
         if model_type == 'baseline':
             convert_model_to_onnx_for_baseline(model=trainer.model,
-                                               num_frames=num_frames,
+                                               num_frames_in_test_stack=num_frames_in_test_stack,
                                                dimension=frame_dimension,
                                                model_name=model_name,
                                                model_path=model_path)
         else:
             convert_model_to_onnx(model=trainer.model,
-                                  num_frames=num_frames,
+                                  num_frames_in_test_stack=num_frames_in_test_stack,
                                   dimension=frame_dimension,
                                   model_name=model_name,
                                   model_path=model_path)
@@ -551,7 +567,7 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_c
             predictions, targets = get_test_set_predictions_for_baseline(model=trainer.model,
                                                                          test_dataset=test_dataset,
                                                                          test_slide_ratio=test_slide_ratio,
-                                                                         num_frames=num_frames,
+                                                                         num_frames_in_test_stack=num_frames_in_test_stack,
                                                                          data_path=data_path,
                                                                          model_name=model_name)
 
@@ -571,7 +587,7 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_c
             predictions, targets = get_test_set_predictions(model=trainer.model,
                                                             test_dataset=test_dataset,
                                                             test_slide_ratio=test_slide_ratio,
-                                                            num_frames=num_frames,
+                                                            num_frames_in_test_stack=num_frames_in_test_stack,
                                                             data_path=data_path,
                                                             model_name=model_name)
 
@@ -605,7 +621,7 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames, num_airway_c
                                                              alpha_direction=alpha_direction,
                                                              gamma=gamma,
                                                              use_focal_loss=use_focal_loss,
-                                                             num_frames_in_stack=num_frames,
+                                                             num_frames_in_stack=num_frames_in_test_stack,
                                                              batch_size=batch_size)
 
             print("Test Airway F1: ", f1_airway)

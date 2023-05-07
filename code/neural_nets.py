@@ -2,6 +2,7 @@ import torchvision.models
 from torch import nn
 import torch
 import torch.nn.functional as F
+from typing import Tuple
 
 class TimeDistributed(nn.Module):
     def __init__(self, feature_extractor, org_shape):
@@ -16,7 +17,7 @@ class TimeDistributed(nn.Module):
         such that the feature extractor can handle the input. When features are returned in a 2D output, the output
         is reshaped to 3D ([batch_size=16, num_frames=5, features=128])
         """
-        assert X.shape[1:] == self.org_shape[1:], f"Wrong input shape to network. Should be [batch_size, {self.org_shape[1]}, {self.org_shape[2]}, {self.org_shape[3]}, {self.org_shape[4]}] but got {X.shape}"
+        assert X.shape[2:] == self.org_shape[2:], f"Wrong input shape to network. Should be [batch_size, time_step, {self.org_shape[2]}, {self.org_shape[3]}, {self.org_shape[4]}] but got {X.shape}"
 
         # Reshape to 4 dim
         X_reshaped = X.contiguous().view((-1,) + self.org_shape[2:])  # [batch_size * num_frames_in_stack, RGB, height, width]
@@ -74,7 +75,7 @@ class Baseline(nn.Module):
 
         return predictions
 
-class LSTM(nn.Module):
+class StatelessLSTM(nn.Module):
     def __init__(self, num_features, num_memory_nodes, num_stacked_LSTMs):
         super().__init__()
         self.input_size = num_features
@@ -90,31 +91,42 @@ class LSTM(nn.Module):
         return X
 
 class StatefulLSTM(nn.Module):
-    def __init__(self, num_features, num_memory_nodes, num_stacked_LSTMs):
+    def __init__(self, num_features, num_memory_nodes, num_stacked_LSTMs, batch_size):
         super(StatefulLSTM, self).__init__()
         self.input_size = num_features
         self.num_memory_nodes = num_memory_nodes
         self.num_stacked_LSTMs = num_stacked_LSTMs
+        self.batch_size = batch_size
+        self.hidden_state = torch.zeros(self.num_stacked_LSTMs, self.batch_size, self.num_memory_nodes)  # [num_layers,batch,hidden_size or H_out]
+        self.cell_state = torch.zeros(self.num_stacked_LSTMs, self.batch_size, self.num_memory_nodes)  # [num_layers,batch,hidden_size]
+
+        # LSTM
         self.lstm = nn.LSTM(input_size=self.input_size, hidden_size=self.num_memory_nodes, num_layers=self.num_stacked_LSTMs, batch_first=True)
 
         for param in self.lstm.parameters():
                 param.requires_grad = True
 
-    def forward(self, X, hidden_state, current_state):
-        X, (hidden_state, current_state) = self.lstm(X, (hidden_state, current_state))
-        return X, (hidden_state, current_state)
+    def forward(self, X: torch.Tensor, hidden: Tuple[torch.Tensor, torch.Tensor]):
+        X, (self.hidden_state, self.cell_state) = self.lstm(X, hidden)
+        return X, (self.hidden_state, self.cell_state)
+
+    @torch.jit.export
+    def reset_states(self):
+        self.hidden_state = self.hidden_state.detach().zero_()
+        self.cell_state = self.cell_state.detach().zero_()
+        return self.hidden_state, self.cell_state
 
 class NoDirectionNavigationNet(nn.Module):
-    def __init__(self, num_memory_nodes, num_features, num_stacked_LSTMs, use_stateful_LSTM, num_frames_in_stack,
+    def __init__(self, num_memory_nodes, num_features, num_stacked_LSTMs, num_frames_in_stack,
                  num_airway_segment_classes, batch_size, frame_dimension):
         super().__init__()
         self.num_memory_nodes = num_memory_nodes
         self.num_features = num_features
         self.num_stacked_LSTMs = num_stacked_LSTMs
-        self.use_stateful_LSTM = use_stateful_LSTM
         self.num_frames_in_stack = num_frames_in_stack
         self.num_airway_segment_classes = num_airway_segment_classes
-        self.shape = tuple((batch_size, num_frames_in_stack, 3, frame_dimension[0], frame_dimension[1]))
+        self.batch_size = batch_size
+        self.shape = tuple((self.batch_size, self.num_frames_in_stack, 3, frame_dimension[0], frame_dimension[1]))
 
         # Feature extractor: Alexnet
         self.feature_extractor = torchvision.models.alexnet(weights='IMAGENET1K_V1').features # 1000
@@ -124,11 +136,7 @@ class NoDirectionNavigationNet(nn.Module):
         self.time_distributed = TimeDistributed(self.feature_extractor, self.shape)
 
         # Recurrent Neural Network: LSTM
-        if self.use_stateful_LSTM:
-            print(" - Using Stateful LSTM -")
-            self.lstm = StatefulLSTM(self.num_features, self.num_memory_nodes, self.num_stacked_LSTMs)
-        else:
-            self.lstm = LSTM(self.num_features, self.num_memory_nodes, self.num_stacked_LSTMs)
+        self.lstm = StatefulLSTM(self.num_features, self.num_memory_nodes, self.num_stacked_LSTMs, self.batch_size)
 
         # Classifier Airway
         self.airway_classifier = nn.Sequential(
@@ -149,30 +157,34 @@ class NoDirectionNavigationNet(nn.Module):
         for param in self.airway_classifier.parameters():
             param.requires_grad = True
 
-    def forward(self, X):
+    def forward(self, X: torch.Tensor, hidden: Tuple[torch.Tensor, torch.Tensor]):
         # Feature extractor
         X = self.time_distributed(X)  # [batch_size, features]
 
         # Handle Temporal data
-        X = self.lstm(X)  # [batch_size, num_frames_in_stack, output_size]
+        X, hidden = self.lstm(X, hidden)  # [batch_size, num_frames_in_stack, output_size]
 
         # Classifier
         airway = self.airway_classifier(X)   # [batch_size, num_frames_in_stack, airway_classes]
 
-        return airway
+        return airway, hidden
+
+    @torch.jit.export
+    def reset_states(self):
+        return self.lstm.reset_states()
 
 class DirectionNavigationNet(nn.Module):
-    def __init__(self, num_memory_nodes, num_features, num_stacked_LSTMs, use_stateful_LSTM, num_frames_in_stack,
+    def __init__(self, num_memory_nodes, num_features, num_stacked_LSTMs, num_frames_in_stack,
                  num_airway_segment_classes, num_direction_classes, batch_size, frame_dimension):
         super().__init__()
         self.num_memory_nodes = num_memory_nodes
         self.num_features = num_features
         self.num_stacked_LSTMs = num_stacked_LSTMs
-        self.use_stateful_LSTM = use_stateful_LSTM
         self.num_frames_in_stack = num_frames_in_stack
         self.num_airway_segment_classes = num_airway_segment_classes
         self.num_direction_classes = num_direction_classes
-        self.shape = tuple((batch_size, num_frames_in_stack, 3, frame_dimension[0], frame_dimension[1]))
+        self.batch_size = batch_size
+        self.shape = tuple((self.batch_size, self.num_frames_in_stack, 3, frame_dimension[0], frame_dimension[1]))
 
         # Feature extractor: Alexnet
         self.feature_extractor = torchvision.models.alexnet(weights='IMAGENET1K_V1').features # 1000
@@ -182,11 +194,7 @@ class DirectionNavigationNet(nn.Module):
         self.time_distributed = TimeDistributed(self.feature_extractor, self.shape)
 
         # Recurrent Neural Network: LSTM
-        if self.use_stateful_LSTM:
-            print(" - Using Stateful LSTM -")
-            self.lstm = StatefulLSTM(self.num_features, self.num_memory_nodes, self.num_stacked_LSTMs)
-        else:
-            self.lstm = LSTM(self.num_features, self.num_memory_nodes, self.num_stacked_LSTMs)
+        self.lstm = StatefulLSTM(self.num_features, self.num_memory_nodes, self.num_stacked_LSTMs, self.batch_size)
 
         # Classifier Airway
         self.airway_classifier = nn.Sequential(
@@ -217,13 +225,12 @@ class DirectionNavigationNet(nn.Module):
             param.requires_grad = True
         for param in self.direction_classifier.parameters():
                 param.requires_grad = True
-
-    def forward(self, X):
+    def forward(self, X: torch.Tensor, hidden: Tuple[torch.Tensor, torch.Tensor]):
         # Feature extractor
         X = self.time_distributed(X)  # [batch_size, features]
 
         # Handle Temporal data
-        X = self.lstm(X)  # [batch_size, num_frames_in_stack, output_size]
+        X, hidden = self.lstm(X, hidden)  # [batch_size, num_frames_in_stack, output_size]
 
         # Classifier
         airway = self.airway_classifier(X)   # [batch_size, num_frames_in_stack, airway_classes]
@@ -231,10 +238,14 @@ class DirectionNavigationNet(nn.Module):
         # Handle an additional classification: Direction
         direction = self.direction_classifier(X)    # [batch_size, num_frames_in_stack, direction_classes]
 
-        return airway, direction
+        return airway, direction, hidden
+
+    @torch.jit.export
+    def reset_states(self):
+        return self.lstm.reset_states()
 
 def create_neural_net(num_memory_nodes, num_features_extracted, model_type, num_frames_in_stack, num_airway_segment_classes,
-                      num_direction_classes, frame_dimension, batch_size, use_stateful_LSTM, classify_direction):
+                      num_direction_classes, frame_dimension, batch_size, num_LSTM_cells, classify_direction):
 
     print("-- NEURAL NET --")
     print(f"Model: {model_type}")
@@ -253,8 +264,7 @@ def create_neural_net(num_memory_nodes, num_features_extracted, model_type, num_
         if classify_direction:
             neural_net = DirectionNavigationNet(num_memory_nodes=num_memory_nodes,
                                                 num_features=num_features_extracted,
-                                                num_stacked_LSTMs=1,
-                                                use_stateful_LSTM=use_stateful_LSTM,
+                                                num_stacked_LSTMs=num_LSTM_cells,
                                                 num_frames_in_stack=num_frames_in_stack,
                                                 num_airway_segment_classes=num_airway_segment_classes,
                                                 num_direction_classes=num_direction_classes,
@@ -265,8 +275,7 @@ def create_neural_net(num_memory_nodes, num_features_extracted, model_type, num_
         else:
             neural_net = NoDirectionNavigationNet(num_memory_nodes=num_memory_nodes,
                                                   num_features=num_features_extracted,
-                                                  num_stacked_LSTMs=1,
-                                                  use_stateful_LSTM=use_stateful_LSTM,
+                                                  num_stacked_LSTMs=num_LSTM_cells,
                                                   num_frames_in_stack=num_frames_in_stack,
                                                   num_airway_segment_classes=num_airway_segment_classes,
                                                   batch_size=batch_size,

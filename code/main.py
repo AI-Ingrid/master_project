@@ -31,7 +31,7 @@ def main():
                                                               num_stacks=num_stacks,
                                                               num_frames_in_stack=num_frames_in_stack,
                                                               slide_ratio_in_stack=slide_ratio_in_stack,
-                                                              test_slide_ratio_in_stack=test_slide_ratio_in_stack,
+                                                              test_slide_ratio_in_stack=slide_ratio_in_test_stack,
                                                               batch_size=batch_size,
                                                               split_the_data=split_the_data,
                                                               num_airway_segment_classes=num_airway_segment_classes,
@@ -50,7 +50,7 @@ def main():
                                    num_direction_classes=num_direction_classes,
                                    frame_dimension=frame_dimension,
                                    batch_size=batch_size,
-                                   use_stateful_LSTM=use_stateful_LSTM,
+                                   num_LSTM_cells=num_LSTM_cells,
                                    classify_direction=classify_direction,)
 
 
@@ -73,13 +73,15 @@ def main():
                           alpha_direction=alpha_direction,
                           gamma=gamma,
                           model_type=model_type,
-                          classify_direction=classify_direction,)
+                          classify_direction=classify_direction,
+                          num_LSTM_cells=num_LSTM_cells,
+                          num_memory_nodes=num_memory_nodes)
 
     # Test model
     test_model(trainer=trainer,
                test_dataset=test,
-               test_slide_ratio=test_slide_ratio_in_stack,
-               num_frames=num_frames_in_stack,
+               test_slide_ratio=slide_ratio_in_test_stack,
+               num_frames_in_test_stack=num_frames_in_test_stack,
                num_airway_classes=num_airway_segment_classes,
                num_direction_classes=num_direction_classes,
                data_path=data_path,

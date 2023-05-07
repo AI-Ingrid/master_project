@@ -11,23 +11,6 @@ def main():
     """ The function running the entire pipeline of the project """
     # To enable determinism between experiments
     set_seed(42)
-    path = "/mnt/EncryptedPathology/bronchi-navigation/master_project/data/synthetic/datasets/old_test"
-    new_path = "/mnt/EncryptedPathology/bronchi-navigation/master_project/data/synthetic/datasets/test"
-    csv_files = list(os.listdir(path))
-    print(csv_files)
-
-    for csv_file in csv_files:
-        data = pd.read_csv(path +"/" + csv_file)
-        # Forward
-        if data["Direction"][0] == 1:
-            # Snu den
-            new_data = data.iloc[::-1]
-            print(new_path+csv_file)
-            new_data.to_csv(new_path+ "/" +csv_file, index=False)
-        else:
-            data.to_csv(new_path + "/" + csv_file, index=False)
-
-    exit()
 
     # Preprocess the data from videos to frames with labels
     preprocess(convert_videos_to_frames=convert_videos_to_frames,

@@ -46,7 +46,7 @@ use_random_stack_generator = False
 test_split = 0.1  # Fraction that split data into test data
 validation_split = 0.1  # Fraction that split data into validation data
 split_the_data = False  # Split videos into train, test or validation
-num_frames_in_stack = 50  # Num frames in a stack that gets sent into RNN
+num_frames_in_stack = 10  # Num frames in a stack that gets sent into RNN
 slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack
 
 # Neural nets details

@@ -257,6 +257,7 @@ def add_labels(path_to_timestamp_file, path_to_position_file, frames, dataframe,
     # "Even"-videos plays backward while "odd"-videos plays forward
     if video_count % 2 == 0:
         # Backward
+        # TODO: Something is wrong with the ordering
         frames.sort(key=natural_keys, reverse=True)
         is_forward = 0
 

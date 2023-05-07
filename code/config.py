@@ -59,9 +59,9 @@ num_LSTM_cells = 1
 
 # Training specifications
 os.environ["CUDA_VISIBLE_DEVICES"] = "2"  # "0", "1" or "2"
-perform_training = True
+perform_training = False
 classify_direction = False
-epochs = 5000
+epochs = 1
 batch_size = 8
 learning_rate = 1e-3 # 1e-4 for å finetune features etter early stopping har kicka inn med Adam i følge andre
 early_stop_count = 100

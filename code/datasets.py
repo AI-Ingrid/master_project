@@ -99,12 +99,16 @@ class StackGeneratorDataset(Dataset):
         return self.total_stacks
 
     def __getitem__(self, item):
+        print("Item: ", item)
         # Fetch video and the stack number for that video
         video_path = self.stack_dict[item]["video_path"]
+        print("Video path: ", video_path)
         local_stack_number = self.stack_dict[item]["local_stack_number"]
+        print("Local Stack Number: ", local_stack_number)
 
         # Read the video file
         video_df = pd.read_csv(video_path)
+        print("First rows: ", video_df.head())
 
         # Get the stack indices
         start_index = local_stack_number * (self.stack_size * self.slide_ratio)
@@ -115,10 +119,15 @@ class StackGeneratorDataset(Dataset):
                     self.stack_size * self.slide_ratio)
         last_frame = video_df.tail(1)
 
+        print("Start index: ", start_index)
+        print("End index: ", end_index)
+        print("Num leftover frames: ", num_left_over_frames)
+
         for i in range(num_left_over_frames):
             video_df = video_df.append(last_frame, ignore_index=True)
 
         stack_df = video_df[start_index: end_index: self.slide_ratio]
+        print("StacK: ", stack_df.head(25))
 
         # Separate the stack's data into frames, airway labels and direction labels
         frames, airway_labels, direction_labels = separate_dataframe(stack_df, self.transform, self.num_airway_classes,
@@ -266,6 +275,9 @@ def create_datasets_and_dataloaders(validation_split, test_split, raw_dataset_pa
                                   batch_size=batch_size,
                                   shuffle=True,
                                   drop_last=True)
+    for X_batch, Y_batch in train_dataloader:
+        print("LET<s GO")
+        exit()
 
     validation_dataloader = DataLoader(dataset=validation_dataset,
                                        batch_size=batch_size,

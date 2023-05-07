@@ -260,7 +260,7 @@ def create_neural_net(num_memory_nodes, num_features_extracted, model_type, num_
 
     # Blomst, Boble or Belle -> with LSTMs
     else:
-        # Blomst
+        # Boble or Belle
         if classify_direction:
             neural_net = DirectionNavigationNet(num_memory_nodes=num_memory_nodes,
                                                 num_features=num_features_extracted,
@@ -271,7 +271,7 @@ def create_neural_net(num_memory_nodes, num_features_extracted, model_type, num_
                                                 batch_size=batch_size,
                                                 frame_dimension=frame_dimension,
                                                 )
-        # Boble or Belle
+        # Blomst
         else:
             neural_net = NoDirectionNavigationNet(num_memory_nodes=num_memory_nodes,
                                                   num_features=num_features_extracted,

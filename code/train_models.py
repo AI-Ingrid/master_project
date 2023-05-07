@@ -8,6 +8,85 @@ from utils.neural_nets_utils import to_cuda
 from torch.utils.tensorboard import SummaryWriter
 
 
+def compute_f1_and_loss_for_baseline(
+        dataloader: torch.utils.data.DataLoader,
+        model: torch.nn.Module,
+        loss_criterion: torch.nn.modules.loss._Loss,
+        num_airway_segment_classes: int,
+        alpha_airway: torch.Tensor,
+        gamma: float,
+        use_focal_loss: bool,
+        num_frames_in_stack: int,
+        batch_size: int,
+        ):
+    """
+        Computes the average loss and the accuracy over the whole dataset
+        in dataloader.
+        Args:
+            dataloder: Validation/Test dataloader
+            model: torch.nn.Module
+            loss_criterion: The loss criterion, e.g: torch.nn.CrossEntropyLoss()
+        Returns:
+            [average_loss, accuracy]: both scalar.
+        """
+    loss_airway = 0
+    f1_airway = 0
+    counter = 0
+
+    # Handle unbalanced dataset with the use of F1 Macro Score
+    f1_airway_segment_metric = tm.F1Score(average='macro', task='multilabel', num_classes=num_airway_segment_classes)
+
+    with torch.no_grad():
+        for (X_batch, (Y_batch_airway, Y_batch_direction)) in dataloader:
+
+            X_batch = to_cuda(X_batch)
+            Y_batch_airway = to_cuda(Y_batch_airway)
+
+            # Perform the forward pass
+            predictions_airway = model(X_batch)
+
+            # Get the prediction probabilities
+            predictions_airway_softmax = torch.softmax(predictions_airway, dim=-1)  # [16, 10, 27]
+
+            # Decode the one-hot-encoding for predictions
+            predictions_airway_decoded = torch.argmax(predictions_airway_softmax, axis=-1).flatten()
+
+            # Decode the one-hot-encoding for targets
+            targets_airway_decoded = torch.argmax(Y_batch_airway, axis=-1).flatten()
+
+            # Compute F1 Score
+            f1_airway += f1_airway_segment_metric(predictions_airway_decoded.cpu(), targets_airway_decoded.cpu())
+
+            # Reshape 3D to 2D for the loss function
+            shape_airway = (batch_size * num_frames_in_stack, num_airway_segment_classes)
+
+            Y_batch_airway = Y_batch_airway.reshape(shape_airway)
+            predictions_airway = predictions_airway.reshape(shape_airway)
+
+            # Compute Loss
+            cross_entropy_loss_airway = loss_criterion(predictions_airway, Y_batch_airway.float(), reduction='none')
+
+            cross_entropy_loss_airway = cross_entropy_loss_airway.mean()
+
+            # Calculate focal loss
+            if use_focal_loss:
+                pt_airway = torch.exp(-cross_entropy_loss_airway)
+                focal_loss_airway = (alpha_airway * (1 - pt_airway) ** gamma * cross_entropy_loss_airway).mean()
+
+                # Summarize over all batches
+                loss_airway += focal_loss_airway
+
+            else:
+                # Summarize over all batches
+                loss_airway += cross_entropy_loss_airway
+
+            counter += 1
+
+    loss_airway = loss_airway / counter
+    f1_airway = f1_airway / counter
+
+    return loss_airway, f1_airway
+
 def compute_f1_and_loss_for_airway(
         dataloader: torch.utils.data.DataLoader,
         model: torch.nn.Module,
@@ -274,12 +353,15 @@ class BaselineTrainer:
         """
         self.model.eval()
         # Compute train loss and accuracy
-        train_airway_loss, train_airway_f1 = compute_f1_and_loss_for_baseline(
-            dataloader=self.train_dataloader, model=self.model, loss_criterion=self.loss_criterion,
-            num_airway_segment_classes=self.num_airway_segment_classes,
-            alpha_airway=self.alpha_airway, gamma=self.gamma,
-            use_focal_loss=self.use_focal_loss, num_frames_in_stack=self.num_frames_in_stack,
-            batch_size=self.batch_size)
+        train_airway_loss, train_airway_f1 = compute_f1_and_loss_for_baseline(dataloader=self.train_dataloader,
+                                                                              model=self.model,
+                                                                              loss_criterion=self.loss_criterion,
+                                                                              num_airway_segment_classes=self.num_airway_segment_classes,
+                                                                              alpha_airway=self.alpha_airway,
+                                                                              gamma=self.gamma,
+                                                                              use_focal_loss=self.use_focal_loss,
+                                                                              num_frames_in_stack=self.num_frames_in_stack,
+                                                                              batch_size=self.batch_size)
 
         # Store training accuracy in dictionary
         self.train_history["airway_f1"][self.global_step] = train_airway_f1
@@ -289,12 +371,15 @@ class BaselineTrainer:
         self.tensorboard_writer.add_scalar("train airway f1", train_airway_f1, self.global_step)
 
         # Compute validation loss and accuracy
-        val_airway_loss, val_airway_f1 = compute_f1_and_loss_for_baseline(
-            dataloader=self.validation_dataloader, model=self.model, loss_criterion=self.loss_criterion,
-            num_airway_segment_classes=self.num_airway_segment_classes,
-            alpha_airway=self.alpha_airway, gamma=self.gamma,
-            use_focal_loss=self.use_focal_loss, num_frames_in_stack=self.num_frames_in_stack,
-            batch_size=self.batch_size)
+        val_airway_loss, val_airway_f1 = compute_f1_and_loss_for_baseline(dataloader=self.validation_dataloader,
+                                                                          model=self.model,
+                                                                          loss_criterion=self.loss_criterion,
+                                                                          num_airway_segment_classes=self.num_airway_segment_classes,
+                                                                          alpha_airway=self.alpha_airway,
+                                                                          gamma=self.gamma,
+                                                                          use_focal_loss=self.use_focal_loss,
+                                                                          num_frames_in_stack=self.num_frames_in_stack,
+                                                                          batch_size=self.batch_size)
 
         # Store validation loss and f1in dictionary
         self.validation_history["airway_segment_loss"][self.global_step] = val_airway_loss

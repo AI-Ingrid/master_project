@@ -21,4 +21,7 @@ thesis.glg
 thesis.gls
 *~
 data/
+test_data/
+trained_models/
+test_set_predictions/
 

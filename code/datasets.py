@@ -13,16 +13,11 @@ def separate_dataframe(video_df, transform, num_airway_segment_classes, num_dire
     direction_labels = video_df["Direction"]
 
     frames = []
-    index = 1
     for frame_path in frame_paths:
-        if index == 11:
-            break
         frame = cv2.imread(frame_path)
-        cv2.imwrite(f"/mnt/EncryptedPathology/bronchi-navigation/master_project/plots/dataset/train_frame{index}.png", frame)
         # Transform frame
         frame = transform(frame)
         frames.append(np.asarray(frame))
-        index += 1
 
     # Convert python list to array
     new_frames = np.array(frames)
@@ -36,8 +31,11 @@ def separate_dataframe(video_df, transform, num_airway_segment_classes, num_dire
         direction_labels = torch.tensor(direction_labels.values)
 
     else:
+        # Shift all ground truth values one value lower, go from labels 1-26 -> 0-25 (for one-hot-encoding)
+        airway_labels = np.array(list(airway_labels.values))
+        airway_labels = airway_labels - 1
         # One-hot encode the labels for training and validation dataset
-        airway_labels = torch.nn.functional.one_hot(torch.tensor(airway_labels.values),
+        airway_labels = torch.nn.functional.one_hot(torch.tensor(airway_labels),
                                                     num_classes=num_airway_segment_classes)  # [num_frames=5, num_classes = 27]
         direction_labels = torch.nn.functional.one_hot(torch.tensor(direction_labels.values),
                                                        num_classes=num_direction_classes)  # [num_frames=5, num_classes=2]
@@ -284,10 +282,6 @@ def create_datasets_and_dataloaders(validation_split, test_split, raw_dataset_pa
                                       transform=transform,
                                       num_airway_classes=num_airway_segment_classes,
                                       num_direction_classes=num_direction_classes)
-        for video in test_dataloader:
-            print("Yep")
-            break
-        exit()
 
     else:
         test_dataset = StackGeneratorDataset(file_list=test_csv_files,

@@ -12,19 +12,25 @@ class TimeDistributed(nn.Module):
 
     def forward(self, X):
         """
-        Reshape 5 dim input ([batch_dim, time_steps, channels, height, width]) into 4 dim
-        ([batch_dim * time_steps, channels, height, width]) by merging columns batch_size and time_steps,
-        such that the feature extractor can handle the input. When features are returned in a 2D output, the output
-        is reshaped to 3D ([batch_size=16, num_frames=5, features=128])
+        Reshape 5 dim input [batch_dim, time_steps, channels, height, width] into 4 dim
+        [batch_dim * time_steps, channels, height, width] by merging columns batch_size
+        and time_steps, such that the feature extractor can perform feature extraction
+        on all batch_sice * time_steps element at once. The feature vectors are returned
+        as a 2D output [batch_size * time_step, features] and is thus reshaped to
+        [batch_size, num_frames, features] before returned
         """
-        assert X.shape[2:] == self.org_shape[2:], f"Wrong input shape to network. Should be [batch_size, time_step, {self.org_shape[2]}, {self.org_shape[3]}, {self.org_shape[4]}] but got {X.shape}"
+        assert X.shape[2:] == self.org_shape[2:], \
+                              f"Wrong input shape to network. " \
+                              f"Should be [batch_size, time_step, " \
+                              f"{self.org_shape[2]}, {self.org_shape[3]}," \
+                              f" {self.org_shape[4]}] but got {X.shape}" \
 
-        # Reshape to 4 dim
-        X_reshaped = X.contiguous().view((-1,) + self.org_shape[2:])  # [batch_size * num_frames_in_stack, RGB, height, width]
-        output = self.feature_extractor(X_reshaped.float())  # [batch_size * num_frames_in_stack, num_features]
+        # Reshape to 4 dim: [batch_size * time_steps, RGB, height, width]
+        X_reshaped = X.contiguous().view((-1,) + self.org_shape[2:])
+        output = self.feature_extractor(X_reshaped.float())
 
-        # Reshape to 3D
-        output_reshaped = output.contiguous().view((-1, self.org_shape[1]) + (output.shape[-1],))  # [8, 10, 128]
+        # Reshape to 3D: [batch_size, time_steps, features]
+        output_reshaped = output.contiguous().view((-1, self.org_shape[1]) + (output.shape[-1],))
         return output_reshaped
 
 class AdaptiveAvgPooling(nn.Module):
@@ -42,7 +48,7 @@ class Baseline(nn.Module):
         self.num_airway_segment_classes = num_airway_segment_classes
         self.shape = tuple((batch_size, num_frames_in_stack, 3, frame_dimension[0], frame_dimension[1]))
 
-        # Feature extractor: resnet18
+        # Feature extractor: alexnet
         self.feature_extractor = torchvision.models.alexnet(weights='IMAGENET1K_V1').features # 1000
         self.feature_extractor.flatten = AdaptiveAvgPooling()
 
@@ -71,6 +77,7 @@ class Baseline(nn.Module):
         X = self.time_distributed(X)  # [batch_size, num_features]
 
         # Classifier
+        print("SHAPE: ", X.shape)
         predictions = self.classifier(X)  # [batch_size, num_frames_in_stack, airway_classes]
 
         return predictions
@@ -224,7 +231,7 @@ class DirectionNavigationNet(nn.Module):
         for param in self.airway_classifier.parameters():
             param.requires_grad = True
         for param in self.direction_classifier.parameters():
-                param.requires_grad = True
+            param.requires_grad = True
     def forward(self, X: torch.Tensor, hidden: Tuple[torch.Tensor, torch.Tensor]):
         # Feature extractor
         X = self.time_distributed(X)  # [batch_size, features]
@@ -281,6 +288,5 @@ def create_neural_net(num_memory_nodes, num_features_extracted, model_type, num_
                                                   batch_size=batch_size,
                                                   frame_dimension=frame_dimension,
                                                   )
-
 
     return neural_net

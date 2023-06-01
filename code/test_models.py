@@ -17,7 +17,8 @@ from train_models import compute_f1_and_loss_for_airway, compute_f1_and_loss_for
 import shutil
 from typing import Tuple
 
-def get_metrics_for_baseline(predictions, targets, num_airway_classes):
+
+def get_metrics(predictions, targets, num_airway_classes):
     f1_macro_airway = 0
     f1_micro_airway = 0
     precision_airway = 0
@@ -53,11 +54,11 @@ def get_metrics_for_baseline(predictions, targets, num_airway_classes):
 
     print("Average F1 Macro Score Airway: ",  average_f1_macro_airway)
     print("Average F1 Micro Score Airway: ",  average_f1_micro_airway)
-    print("Average Precision Airway: ", average_precision_airway)
-    print("Average Recall Airway: ", average_recall_airway)
+    #print("Average Precision Airway: ", average_precision_airway)
+    #print("Average Recall Airway: ", average_recall_airway)
 
 
-def get_metrics(predictions, targets, num_airway_classes, num_direction_classes):
+def get_metrics_with_direction(predictions, targets, num_airway_classes, num_direction_classes):
     # Initializing F1 score variables
     f1_macro_airway = 0
     f1_micro_airway = 0
@@ -124,10 +125,10 @@ def get_metrics(predictions, targets, num_airway_classes, num_direction_classes)
     print("Average F1 Macro Score Direction: ", average_f1_macro_direction)
     print("Average F1 Micro Score Direction: ", average_f1_micro_direction)
 
-    print("Average Precision Airway: ", average_precision_airway)
-    print("Average Precision Direction: ", average_precision_direction)
-    print("Average Recall Airway: ", average_recall_airway)
-    print("Average Recall Direction: ", average_recall_direction)
+    #print("Average Precision Airway: ", average_precision_airway)
+    #print("Average Precision Direction: ", average_precision_direction)
+    #print("Average Recall Airway: ", average_recall_airway)
+    #print("Average Recall Direction: ", average_recall_direction)
 
 
 def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio, num_frames_in_test_stack, data_path, model_name):
@@ -218,7 +219,7 @@ def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio,
     return all_predictions, all_targets
 
 
-def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames_in_test_stack, data_path, model_name):
+def get_test_set_predictions_with_direction(model, test_dataset, test_slide_ratio, num_frames_in_test_stack, data_path, model_name, stateful_testing=True):
     # Create path to store csv files with predictions and labels for the given model
     directory_path = pathlib.Path(f"{data_path}/test_set_predictions/{model_name}")
     if os.path.exists(directory_path):
@@ -236,6 +237,109 @@ def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames_i
     for video_frames, (airway_labels, direction_labels) in tqdm(test_dataset):
         airway_predictions = []
         direction_predictions = []
+
+        # Handle stack edge case to make sure every stack has length num_frames
+        extended_video_frames = copy.deepcopy(video_frames)
+        num_left_over_frames = (num_frames_in_test_stack * test_slide_ratio) - len(video_frames) % (num_frames_in_test_stack * test_slide_ratio)
+
+        if num_left_over_frames != 0:
+            # Copy last frames to get equal stack length
+            additional_frames = [video_frames[-1]] * (num_left_over_frames)
+            additional_frames = torch.stack(additional_frames, dim=0)
+            extended_video_frames = torch.cat([video_frames, additional_frames], dim=0)
+
+        #Initialize hidden state and cell state at the beginning of every video
+        hidden_state = torch.zeros(model.num_stacked_LSTMs, 1, model.num_memory_nodes)  # [num_layers,batch,hidden_size or H_out]
+        cell_state = torch.zeros(model.num_stacked_LSTMs, 1, model.num_memory_nodes)  # [num_layers,batch,hidden_size]
+        hidden = to_cuda((hidden_state, cell_state))
+
+        # Go through the frames with a given test slide ratio and number of frames in a stack
+        for i in range(0, len(extended_video_frames), num_frames_in_test_stack * test_slide_ratio):
+
+            # Create a stack containing a given number of frames with a given slide ratio between the frames
+            stack = extended_video_frames[i:i + (num_frames_in_test_stack * test_slide_ratio): test_slide_ratio]
+
+            # Reshape stack to 5D setting batch size to 1
+            stack_shape = stack.shape
+            stack_5D = stack.reshape(1, stack_shape[0], stack_shape[1], stack_shape[2], stack_shape[3])
+
+            # Send Tensor to GPU
+            stack_5D = to_cuda(stack_5D)
+            torch.manual_seed(42)
+
+            # Send stack into the model and get predictions
+            predictions_airway, predictions_direction, hidden = model(stack_5D, hidden)  # out: (1, 5, 27), (1, 5, 2)
+
+            # Remove batch dim
+            predictions_airway = torch.squeeze(predictions_airway)  # out: (frames in stack, 27)
+            predictions_direction = torch.squeeze(predictions_direction)  # out (frames in stack, 2)
+
+            # STATEFUL: Softmax
+            probabilities_airway = torch.softmax(predictions_airway, dim=-1).detach().cpu()    # (50, 27)
+            probabilities_direction = torch.softmax(predictions_direction, dim=-1).detach().cpu()   # (50, 2)
+
+            # Free memory
+            del predictions_airway, predictions_direction,
+
+            # Argmax
+            predictions_airway = torch.argmax(probabilities_airway, axis=-1)  # (5)
+            predictions_direction = torch.argmax(probabilities_direction, axis=-1)  # (5)
+
+            # Interpolate - Resize
+            full_stack_predictions_airway = scipy.ndimage.zoom(predictions_airway, zoom=(test_slide_ratio), order=0)  # [50]
+            full_stack_predictions_direction = scipy.ndimage.zoom(predictions_direction, zoom=(test_slide_ratio), order=0)  # [50]
+
+            # Store stack predictions in the current video predictions list
+            airway_predictions += full_stack_predictions_airway.tolist()  # airway_predictions: [[stack1], [stack2], [stack3], [stack4] ... [stack16]]
+            direction_predictions += full_stack_predictions_direction.tolist()  # direction_predictions [[stack1], [stack2], [stack3], [stack4] ... [stack16]]
+
+            if not stateful_testing:
+                # Reset the states
+                model.reset_states()
+
+        # Store the entire video predictions (without extended frames) in a list with all videos
+        all_predictions.append((airway_predictions[:len(video_frames)], direction_predictions[:len(video_frames)]))
+
+        # Store the entire video predictions (without extended frames) in a csv file
+        frame_names = [f"frame_{i}.png" for i in range(len(airway_labels))]
+        temp_prediction_dict = {"Frame": frame_names, "Airway Prediction": airway_predictions[:len(video_frames)], "Direction Predictions": direction_predictions[:len(video_frames)]}
+        all_predictions_df = pd.DataFrame(temp_prediction_dict)
+        all_predictions_df.to_csv(f"{directory_path}/Predictions_Patient_001_{test_sequences[video_counter]}.csv", index=False, mode='a')
+
+        # Store all targets in a all targets list
+        all_targets.append((airway_labels.tolist(), direction_labels.tolist()))
+
+        # Store the entire video labels in a csv file
+        temp_target_dict = {"Frame": frame_names, "Airway Label": airway_labels, "Direction Label": direction_labels}
+        all_predictions_df = pd.DataFrame(temp_target_dict)
+        all_predictions_df.to_csv(f"{directory_path}/Labels_Patient_001_{test_sequences[video_counter]}.csv", index=False, mode='a')
+
+        # Increase video counter
+        video_counter += 1
+
+        # Reset the states
+        model.reset_states()
+
+    return all_predictions, all_targets
+
+
+def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames_in_test_stack, data_path, model_name, stateful_testing=True):
+    # Create path to store csv files with predictions and labels for the given model
+    directory_path = pathlib.Path(f"{data_path}/test_set_predictions/{model_name}")
+    if os.path.exists(directory_path):
+        shutil.rmtree(directory_path)
+    os.makedirs(directory_path)
+
+    all_predictions = []  # [(airway, direction), (airway, direction), .......]
+    all_targets = []  # [(airway, direction), (airway, direction), .......]
+
+    sequence_list = list(os.listdir(f"{data_path}/datasets/test"))
+    test_sequences = [file.split(".")[0] for file in sequence_list if (file.lower().endswith('.csv'))]
+    video_counter = 0
+
+    # Go through every video in test data set
+    for video_frames, (airway_labels, _) in tqdm(test_dataset):
+        airway_predictions = []
 
         # Handle stack edge case to make sure every stack has length num_frames
         extended_video_frames = copy.deepcopy(video_frames)
@@ -267,46 +371,44 @@ def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames_i
             torch.manual_seed(42)
 
             # Send stack into the model and get predictions
-            predictions_airway, predictions_direction, hidden = model(stack_5D, hidden)  # out: (1, 5, 27), (1, 5, 2)
+            predictions_airway, hidden = model(stack_5D, hidden)  # out: (1, 5, 27), (1, 5, 2)
 
             # Remove batch dim
             predictions_airway = torch.squeeze(predictions_airway)  # out: (frames in stack, 27)
-            predictions_direction = torch.squeeze(predictions_direction)  # out (frames in stack, 2)
 
             # Softmax
             probabilities_airway = torch.softmax(predictions_airway, dim=-1).detach().cpu()    # (50, 27)
-            probabilities_direction = torch.softmax(predictions_direction, dim=-1).detach().cpu()   # (50, 2)
 
             # Free memory
-            del predictions_airway, predictions_direction
+            del predictions_airway
 
             # Argmax
             predictions_airway = torch.argmax(probabilities_airway, axis=-1)  # (5)
-            predictions_direction = torch.argmax(probabilities_direction, axis=-1)  # (5)
-
 
             # Interpolate - Resize
             full_stack_predictions_airway = scipy.ndimage.zoom(predictions_airway, zoom=(test_slide_ratio), order=0)  # [50]
-            full_stack_predictions_direction = scipy.ndimage.zoom(predictions_direction, zoom=(test_slide_ratio), order=0)  # [50]
 
             # Store stack predictions in the current video predictions list
             airway_predictions += full_stack_predictions_airway.tolist()  # airway_predictions: [[stack1], [stack2], [stack3], [stack4] ... [stack16]]
-            direction_predictions += full_stack_predictions_direction.tolist()  # direction_predictions [[stack1], [stack2], [stack3], [stack4] ... [stack16]]
+
+            # Reset the states
+            if not stateful_testing:
+                model.reset_states()
 
         # Store the entire video predictions (without extended frames) in a list with all videos
-        all_predictions.append((airway_predictions[:len(video_frames)], direction_predictions[:len(video_frames)]))
+        all_predictions.append((airway_predictions[:len(video_frames)]))
 
         # Store the entire video predictions (without extended frames) in a csv file
         frame_names = [f"frame_{i}.png" for i in range(len(airway_labels))]
-        temp_prediction_dict = {"Frame": frame_names, "Airway Prediction": airway_predictions[:len(video_frames)], "Direction Predictions": direction_predictions[:len(video_frames)]}
+        temp_prediction_dict = {"Frame": frame_names, "Airway Prediction": airway_predictions[:len(video_frames)]}
         all_predictions_df = pd.DataFrame(temp_prediction_dict)
         all_predictions_df.to_csv(f"{directory_path}/Predictions_Patient_001_{test_sequences[video_counter]}.csv", index=False, mode='a')
 
         # Store all targets in a all targets list
-        all_targets.append((airway_labels.tolist(), direction_labels.tolist()))
+        all_targets.append(airway_labels.tolist())
 
         # Store the entire video labels in a csv file
-        temp_target_dict = {"Frame": frame_names, "Airway Label": airway_labels, "Direction Label": direction_labels}
+        temp_target_dict = {"Frame": frame_names, "Airway Label": airway_labels}
         all_predictions_df = pd.DataFrame(temp_target_dict)
         all_predictions_df.to_csv(f"{directory_path}/Labels_Patient_001_{test_sequences[video_counter]}.csv", index=False, mode='a')
 
@@ -394,19 +496,22 @@ def convert_model_to_onnx(model, num_frames_in_test_stack, dimension, model_name
 
     # Add the SoftmaxLayer to the trained model in a nn.Module
     class ModelForOnnx(nn.Module):
-        def __init__(self):
+        def __init__(self, num_LSTM_cells, batch_size, num_memory_nodes):
             super().__init__()
             self.trained_model = model
             self.softmax_layer = softmax_layer
 
-        def forward(self, X: torch.Tensor, hidden: Tuple[torch.Tensor, torch.Tensor]):  #[16, 5, 27/2]
-            airway, direction, hidden = self.trained_model(X, hidden)
+            # Initialize hidden state and cell state at the beginning of every epoch
+            self.hidden_state = to_cuda(torch.zeros(num_LSTM_cells, batch_size, num_memory_nodes))  # [num_layers,batch,hidden_size or H_out]
+            self.cell_state = to_cuda(torch.zeros(num_LSTM_cells, batch_size, num_memory_nodes))  # [num_layers,batch,hidden_size]
+
+        def forward(self, X: torch.Tensor):  #[16, 5, 27/2]
+            airway, (self.hidden_state, self.cell_state) = self.trained_model(X, (self.hidden_state, self.cell_state))
             airway = self.softmax_layer(airway)
-            direction = self.softmax_layer(direction)
-            return airway, direction, hidden
+            return airway
 
     # Convert the ModelForOnnx (nn.Module) to s torch script
-    model_for_onnx = ModelForOnnx()
+    model_for_onnx = ModelForOnnx(model.num_stacked_LSTMs, 1, model.num_memory_nodes)
     model_for_onnx_torchscript = torch.jit.script(model_for_onnx)
     model_for_onnx_path = model_directory_path.joinpath("model_for_onnx.pt")
 
@@ -421,12 +526,78 @@ def convert_model_to_onnx(model, num_frames_in_test_stack, dimension, model_name
 
     dummy_input_X = torch.randn(1, num_frames_in_test_stack, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
     dummy_input_X_cuda = to_cuda(dummy_input_X)
-    # Initialize hidden state and cell state at the beginning of every video
-    hidden_state = torch.zeros(model.num_stacked_LSTMs, 1, model.num_memory_nodes)  # [num_layers,batch,hidden_size or H_out]
-    cell_state = torch.zeros(model.num_stacked_LSTMs, 1, model.num_memory_nodes)  # [num_layers,batch,hidden_size]
-    dummy_input_hidden = to_cuda((hidden_state, cell_state))
 
-    torch.onnx.export(model_for_onnx, (dummy_input_X_cuda, dummy_input_hidden), f'{model_path}onnx/{model_name}.onnx', opset_version=11)
+    torch.onnx.export(
+        model_for_onnx,
+        (dummy_input_X_cuda, ),
+        f'{model_path}onnx/{model_name}.onnx',
+        opset_version=11,
+        # Add dynamix axes
+    )
+
+
+def convert_model_to_onnx_with_direction(model, num_frames_in_test_stack, dimension, model_name, model_path):
+    """ Converts a trained model into an onnx model. """
+    # Set path for storing models as torch scripts
+    model_directory_path = pathlib.Path(model_path + model_name)
+
+    # Create a softmax layer that will be added at the end of the trained model
+    softmax_layer = SoftmaxLayer()
+
+    # Convert the SoftmaxLayer to  a torch script model
+    softmax_layer_torchscript = torch.jit.script(softmax_layer)
+    softmax_layer_path = model_directory_path.joinpath("softmax_layer.pt")
+
+    # Save SoftmaxLayer as a torch script model
+    torch.jit.save(softmax_layer_torchscript, softmax_layer_path)
+
+    # Load the torch script model SoftmaxLayer
+    softmax_layer = torch.jit.load(softmax_layer_path, map_location=torch.device('cuda'))
+
+    # Freeze the weights
+    softmax_layer.eval()
+
+    # Add the SoftmaxLayer to the trained model in a nn.Module
+    class ModelForOnnx(nn.Module):
+        def __init__(self, num_LSTM_cells, batch_size, num_memory_nodes):
+            super().__init__()
+            self.trained_model = model
+            self.softmax_layer = softmax_layer
+
+            # Initialize hidden state and cell state at the beginning of every epoch
+            self.hidden_state = to_cuda(torch.zeros(num_LSTM_cells, batch_size, num_memory_nodes))  # [num_layers,batch,hidden_size or H_out]
+            self.cell_state = to_cuda(torch.zeros(num_LSTM_cells, batch_size, num_memory_nodes))  # [num_layers,batch,hidden_size]
+
+        def forward(self, X: torch.Tensor):
+            airway, direction, (self.hidden_state, self.cell_state) = self.trained_model(X, (self.hidden_state, self.cell_state))
+            airway = self.softmax_layer(airway)
+            direction = self.softmax_layer(direction)
+            return airway, direction
+
+    # Convert the ModelForOnnx (nn.Module) to s torch script
+    model_for_onnx = ModelForOnnx(model.num_stacked_LSTMs, 1, model.num_memory_nodes)
+    model_for_onnx_torchscript = torch.jit.script(model_for_onnx)
+    model_for_onnx_path = model_directory_path.joinpath("model_for_onnx.pt")
+
+    # Save LastPred as a torchscript model
+    torch.jit.save(model_for_onnx_torchscript, model_for_onnx_path)
+
+    # Load the torchscript model LastPred
+    model_for_onnx = torch.jit.load(model_for_onnx_path, map_location=torch.device('cuda'))
+
+    # Freeze the weights
+    model_for_onnx.eval()
+
+    dummy_input_X = torch.randn(1, num_frames_in_test_stack, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
+    dummy_input_X_cuda = to_cuda(dummy_input_X)
+
+    torch.onnx.export(model_for_onnx,
+                      (dummy_input_X_cuda, ),
+                      f'{model_path}onnx/{model_name}.onnx',
+                      opset_version=11,
+                      dynamic_axes={
+
+                      })
 
 
 def map_synthetic_frames_and_test_frames(data_path):
@@ -455,10 +626,13 @@ def map_synthetic_frames_and_test_frames(data_path):
             frame_count += 1
 
 
-def plot_confusion_metrics_for_baseline(predictions, targets, confusion_metrics_plot_path, num_airway_classes):
+def plot_confusion_metrics(predictions, targets, confusion_metrics_plot_path, num_airway_classes, stateful_testing=True):
     plot_directory_path = pathlib.Path(confusion_metrics_plot_path)
     plot_directory_path.mkdir(exist_ok=True)
-    airway_plot_path = pathlib.Path(confusion_metrics_plot_path + "/airway_confusion_matrix.png")
+    if not stateful_testing:
+        airway_plot_path = pathlib.Path(confusion_metrics_plot_path + "/stateless_airway_confusion_matrix.png")
+    else:
+        airway_plot_path = pathlib.Path(confusion_metrics_plot_path + "/stateful_airway_confusion_matrix.png")
 
     # Predictions og targets er ikke onehote encoda
     # Predictions består av en liste med 9 elementer, hvert element er en video
@@ -486,11 +660,16 @@ def plot_confusion_metrics_for_baseline(predictions, targets, confusion_metrics_
     plt.show()
 
 
-def plot_confusion_metrics(predictions, targets, confusion_metrics_plot_path, num_airway_classes, num_direction_classes):
+def plot_confusion_metrics_with_direction(predictions, targets, confusion_metrics_plot_path, num_airway_classes, num_direction_classes, stateful_testing=True):
     plot_directory_path = pathlib.Path(confusion_metrics_plot_path)
     plot_directory_path.mkdir(exist_ok=True)
-    airway_plot_path = pathlib.Path(confusion_metrics_plot_path + "/airway_confusion_matrix.png")
-    direction_plot_path = pathlib.Path(confusion_metrics_plot_path + "/direction_confusion_matrix.png")
+
+    if not stateful_testing:
+        airway_plot_path = pathlib.Path(confusion_metrics_plot_path + "/stateless_airway_confusion_matrix.png")
+        direction_plot_path = pathlib.Path(confusion_metrics_plot_path + "/stateless_direction_confusion_matrix.png")
+    else:
+        airway_plot_path = pathlib.Path(confusion_metrics_plot_path + "/stateful_airway_confusion_matrix.png")
+        direction_plot_path = pathlib.Path(confusion_metrics_plot_path + "/stateful_direction_confusion_matrix.png")
 
     # Predictions og targets er ikke onehote encoda
     # Predictions består av en liste med 9 elementer, hvert element er en video
@@ -533,96 +712,159 @@ def plot_confusion_metrics(predictions, targets, confusion_metrics_plot_path, nu
 
 
 def test_model(trainer, test_dataset, test_slide_ratio, num_frames_in_test_stack, num_airway_classes, num_direction_classes, data_path,
-               frame_dimension, convert_to_onnx, model_name, model_path, test_plot_path, model_type, load_best_model,
-               use_test_dataloader, inference_device, ):
+               frame_dimension, model_name, model_path, test_plot_path, model_type, inference_device, airway_labels, direction_labels,
+               local_test_data_path, local_trained_model_path):
+
     print("-- TESTING --")
-
     # Load neural net model
-    if load_best_model:
-        print("Loading best model")
-        trainer.load_model(inference_device)
+    print("Loading best model for: ", model_name)
+    trainer.load_model(inference_device)
 
-        # Set to inference mode -> freeze model
-        torch.manual_seed(42)
-        trainer.model.eval()
+    # Set to inference mode -> freeze model
+    torch.manual_seed(42)
+    trainer.model.eval()
 
-    # Convert model to ONNX
-    if convert_to_onnx:
-        if model_type == 'baseline':
-            convert_model_to_onnx_for_baseline(model=trainer.model,
-                                               num_frames_in_test_stack=num_frames_in_test_stack,
-                                               dimension=frame_dimension,
-                                               model_name=model_name,
-                                               model_path=model_path)
-        else:
-            convert_model_to_onnx(model=trainer.model,
-                                  num_frames_in_test_stack=num_frames_in_test_stack,
-                                  dimension=frame_dimension,
-                                  model_name=model_name,
-                                  model_path=model_path)
-
-    # Run predictions on test set
+    # Test pipeline for Baseline: No LSTM or direction
     if model_type == 'baseline':
-        if use_test_dataloader:
-            predictions, targets = get_test_set_predictions_for_baseline(model=trainer.model,
-                                                                         test_dataset=test_dataset,
-                                                                         test_slide_ratio=test_slide_ratio,
-                                                                         num_frames_in_test_stack=num_frames_in_test_stack,
-                                                                         data_path=data_path,
-                                                                         model_name=model_name)
+        # Convert to onnx
+        convert_model_to_onnx_for_baseline(model=trainer.model,
+                                           num_frames_in_test_stack=num_frames_in_test_stack,
+                                           dimension=frame_dimension,
+                                           model_name=model_name,
+                                           model_path=model_path)
+        # Run predictions on test set
+        predictions, targets = get_test_set_predictions_for_baseline(model=trainer.model,
+                                                                     test_dataset=test_dataset,
+                                                                     test_slide_ratio=test_slide_ratio,
+                                                                     num_frames_in_test_stack=num_frames_in_test_stack,
+                                                                     data_path=data_path,
+                                                                     model_name=model_name)
+        # Get F1 Macro Score, Precision and Recall
+        get_metrics(predictions=predictions,
+                    targets=targets,
+                    num_airway_classes=num_airway_classes)
 
-            # Get F1 Macro Score, Precision and Recall
-            get_metrics_for_baseline(predictions=predictions,
-                                     targets=targets,
-                                     num_airway_classes=num_airway_classes)
+        # Plot Confusion Metrics
+        plot_confusion_metrics(predictions=predictions,
+                               targets=targets,
+                               confusion_metrics_plot_path=test_plot_path,
+                               num_airway_classes=num_airway_classes)
 
-            # Plot Confusion Metrics
-            plot_confusion_metrics_for_baseline(predictions=predictions,
-                                                targets=targets,
-                                                confusion_metrics_plot_path=test_plot_path,
-                                                num_airway_classes=num_airway_classes)
-    else:
-        if use_test_dataloader:
-            print("Using test dataloader")
-            predictions, targets = get_test_set_predictions(model=trainer.model,
-                                                            test_dataset=test_dataset,
-                                                            test_slide_ratio=test_slide_ratio,
-                                                            num_frames_in_test_stack=num_frames_in_test_stack,
-                                                            data_path=data_path,
-                                                            model_name=model_name)
+    # Test pipeline for Blomst: LSTM
+    elif model_type == "blomst":
+        convert_model_to_onnx(model=trainer.model,
+                              num_frames_in_test_stack=num_frames_in_test_stack,
+                              dimension=frame_dimension,
+                              model_name=model_name,
+                              model_path=model_path)
 
-            # Get F1 Macro Score, Precision and Recall
-            get_metrics(predictions=predictions,
-                        targets=targets,
-                        num_airway_classes=num_airway_classes,
-                        num_direction_classes=num_direction_classes)
+        # STATEFUL: Run predictions on test set
+        print(" -- STATEFUL TESTING --")
+        stateful_predictions, targets = get_test_set_predictions(model=trainer.model,
+                                                                 test_dataset=test_dataset,
+                                                                 test_slide_ratio=test_slide_ratio,
+                                                                 num_frames_in_test_stack=num_frames_in_test_stack,
+                                                                 data_path=data_path,
+                                                                 model_name=model_name,
+                                                                 stateful_testing=True)
 
-            # Plot Confusion Metrics
-            plot_confusion_metrics(predictions=predictions,
+        # Get F1 Macro Score, Precision and Recall
+        get_metrics(predictions=stateful_predictions,
+                    targets=targets,
+                    num_airway_classes=num_airway_classes)
+
+        # Plot Confusion Metrics
+        plot_confusion_metrics(predictions=stateful_predictions,
+                               targets=targets,
+                               confusion_metrics_plot_path=test_plot_path,
+                               num_airway_classes=num_airway_classes,
+                               stateful_testing=True)
+
+        # STATELESS: Run predictions on test set
+        print(" -- STATELESS TESTING --")
+        stateless_predictions, targets = get_test_set_predictions(model=trainer.model,
+                                                                  test_dataset=test_dataset,
+                                                                  test_slide_ratio=test_slide_ratio,
+                                                                  num_frames_in_test_stack=num_frames_in_test_stack,
+                                                                  data_path=data_path,
+                                                                  model_name=model_name,
+                                                                  stateful_testing=False)
+
+        # Get F1 Macro Score, Precision and Recall
+        get_metrics(predictions=stateless_predictions,
+                    targets=targets,
+                    num_airway_classes=num_airway_classes)
+
+        # Plot Confusion Metrics
+        plot_confusion_metrics(predictions=stateless_predictions,
+                               targets=targets,
+                               confusion_metrics_plot_path=test_plot_path,
+                               num_airway_classes=num_airway_classes,
+                               stateful_testing=False)
+
+    # Test pipeline for Boble or Belle: LSTM and direction
+    elif model_type == "boble" or model_type == "belle":
+        print(" -- STATEFUL TESTING --")
+        # Convert to onnx
+        convert_model_to_onnx_with_direction(model=trainer.model,
+                                             num_frames_in_test_stack=num_frames_in_test_stack,
+                                             dimension=frame_dimension,
+                                             model_name=model_name,
+                                             model_path=model_path)
+        # Run predictions on test set
+        stateful_predictions, targets = get_test_set_predictions_with_direction(model=trainer.model,
+                                                                                test_dataset=test_dataset,
+                                                                                test_slide_ratio=test_slide_ratio,
+                                                                                num_frames_in_test_stack=num_frames_in_test_stack,
+                                                                                data_path=data_path,
+                                                                                model_name=model_name,
+                                                                                stateful_testing=True)
+
+        # Get F1 Macro Score, Precision and Recall
+        get_metrics_with_direction(predictions=stateful_predictions,
                                    targets=targets,
-                                   confusion_metrics_plot_path=test_plot_path,
                                    num_airway_classes=num_airway_classes,
                                    num_direction_classes=num_direction_classes)
-        else:
-            alpha_airway = torch.Tensor([0.2, 0.5, 0.5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
-            alpha_direction = torch.Tensor([1, 1])
-            alpha_airway = to_cuda(alpha_airway)
-            alpha_direction = to_cuda(alpha_direction)
-            gamma = 2.0
-            use_focal_loss = True
-            batch_size = 8
-            loss_airway, loss_direction, f1_airway, f1_direction = \
-                compute_f1_and_loss_for_airway_and_direction(dataloader=test_dataset,
-                                                             model=trainer.model,
-                                                             loss_criterion=torch.nn.functional.cross_entropy,
-                                                             num_airway_segment_classes=num_airway_classes,
-                                                             num_direction_classes=num_direction_classes,
-                                                             alpha_airway=alpha_airway,
-                                                             alpha_direction=alpha_direction,
-                                                             gamma=gamma,
-                                                             use_focal_loss=use_focal_loss,
-                                                             num_frames_in_stack=num_frames_in_test_stack,
-                                                             batch_size=batch_size)
 
-            print("Test Airway F1: ", f1_airway)
-            print("Test Direction F1: ", f1_direction)
+        # Plot Confusion Metrics
+        plot_confusion_metrics_with_direction(predictions=stateful_predictions,
+                                              targets=targets,
+                                              confusion_metrics_plot_path=test_plot_path,
+                                              num_airway_classes=num_airway_classes,
+                                              num_direction_classes=num_direction_classes,
+                                              stateful_testing=True)
+
+        print(" -- STATELESS TESTING --")
+        # Run predictions on test set
+        stateless_predictions, targets = get_test_set_predictions_with_direction(model=trainer.model,
+                                                                                 test_dataset=test_dataset,
+                                                                                 test_slide_ratio=test_slide_ratio,
+                                                                                 num_frames_in_test_stack=num_frames_in_test_stack,
+                                                                                 data_path=data_path,
+                                                                                 model_name=model_name,
+                                                                                 stateful_testing=False)
+
+        # Get F1 Macro Score, Precision and Recall
+        get_metrics_with_direction(predictions=stateless_predictions,
+                                   targets=targets,
+                                   num_airway_classes=num_airway_classes,
+                                   num_direction_classes=num_direction_classes)
+
+        # Plot Confusion Metrics
+        plot_confusion_metrics_with_direction(predictions=stateless_predictions,
+                                              targets=targets,
+                                              confusion_metrics_plot_path=test_plot_path,
+                                              num_airway_classes=num_airway_classes,
+                                              num_direction_classes=num_direction_classes,
+                                              stateful_testing=False)
+        """ 
+        # Run inference testing with pyfast
+        test_videos = list(os.listdir(local_test_data_path))
+        for test_video in test_videos:
+            test_video_path = local_test_data_path + f"/{test_video}/frame_#.png"
+            run_testing_realtime(airway_labels=airway_labels,
+                                 direction_labels=direction_labels,
+                                 data_path=test_video_path,
+                                 num_frames_in_test_stack=num_frames_in_test_stack,
+                                 trained_model_path=local_trained_model_path)
+        """

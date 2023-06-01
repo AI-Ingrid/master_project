@@ -5,6 +5,7 @@ from neural_nets import create_neural_net
 from train_models import train_model
 from test_models import test_model
 from utils.neural_nets_utils import set_seed
+from utils.data_utils import get_dataset_distribution
 import pandas as pd
 
 def main():
@@ -87,14 +88,15 @@ def main():
                num_direction_classes=num_direction_classes,
                data_path=data_path,
                frame_dimension=frame_dimension,
-               convert_to_onnx=convert_to_onnx,
                model_name=model_name,
                model_path=model_path,
                test_plot_path=test_plot_path,
                model_type=model_type,
-               load_best_model=load_best_model,
-               use_test_dataloader=use_test_dataloader,
-               inference_device=inference_device)
+               inference_device=inference_device,
+               airway_labels=airway_labels,
+               direction_labels=direction_labels,
+               local_test_data_path=local_data_path,
+               local_trained_model_path=local_trained_model_path,)
 
 
 if __name__ == "__main__":

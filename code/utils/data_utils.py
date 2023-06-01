@@ -47,65 +47,40 @@ def create_stack_dict(file_list, stack_size, slide_ratio):
                 index += 1
         return total_stacks, stack_dict, overlap_dict
 
-
-def get_class_distribution_for_batch(y_batch, count):
-    for label in y_batch:
-        decoded_label = np.argmax(label)
-        if not count:
-            count[int(decoded_label)] = 1
-        else:
-            labels = list(count.keys())
-            if decoded_label not in labels:
-                count[int(decoded_label)] = 1
-
-            else:
-                count[int(decoded_label)] += 1
-    return count
+def get_dataset_distribution(path_csv_files):
+    csv_file_list = list(os.listdir(path_csv_files))
+    huge_dataframe = pd.DataFrame()
+    for csv_file in csv_file_list:
+        df = pd.read_csv("/mnt/EncryptedPathology/bronchi-navigation/master_project/data/synthetic/datasets/validation/"+ csv_file)
+        huge_dataframe = huge_dataframe.append(df, ignore_index=True)
+        print(huge_dataframe)
+        count_df = huge_dataframe.groupby(['Airway_Segment']).count()
+        print(count_df)
 
 
-def get_class_distribution(dataloader):
+
+
+
+def get_class_distribution_for_test(test):
     count = {}
-    for x_batch, y_batch in dataloader:
-        count = get_class_distribution_for_batch(y_batch, count)
+    sum_airways = 0
+    for video_frames, video_labels in test:
+        sum_airways += len(video_labels[0])
+        # For every label
+        for label in video_labels[0]:
+            if not count:
+                count[int(label)] = 1
+            else:
+                labels = list(count.keys())
+                if (label) not in labels:
+                    count[int(label)] = 1
+
+                else:
+                    count[int(label)] += 1
+    print(count)
+    print(sum(count.values()))
+    print(sum_airways)
     return count
-
-
-def plot_dataset_distribution(fps, train, validation=None, test=None):
-    plt.figure()
-    train_dist = get_class_distribution(train)
-    x_axis = list(train_dist.keys())
-    type = "None"
-
-    # Train
-    if validation is None and test is None:
-        y_train = list(train_dist.values())
-        plt.bar(x_axis, y_train, label="Train")
-        type = "train"
-
-    # Validation
-    elif validation is not None and test is None:
-        validation_dist = get_class_distribution(validation)
-        y_validation = list(validation_dist.values())
-        while len(y_validation) != 26:
-            y_validation.append(0)
-        plt.bar(x_axis, y_validation, label="Validation")
-        type = "validation"
-
-    # Test
-    elif validation is None and test is not None:
-        test_dist = get_class_distribution(test)
-        y_test = list(test_dist.values())
-        while len(y_test) != 26:
-            y_test.append(0)
-        plt.bar(x_axis, y_test, label="Test")
-        type = "test"
-
-    print("Plotting: ", type)
-    plt.title(f'Distribution in SegmentDetNet with {fps} FPS for the {type} data set')
-    plt.xlabel('Labels')
-    plt.ylabel('Number of examples')
-    plt.legend()
-    plt.savefig(f"6_{type}_distribution_{fps}_fps.png")
 
 
 def compute_mean_std(dataset, dataloader, frame_dim):

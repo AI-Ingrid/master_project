@@ -30,7 +30,7 @@ class TimeDistributed(nn.Module):
         output = self.feature_extractor(X_reshaped.float())
 
         # Reshape to 3D: [batch_size, time_steps, features]
-        output_reshaped = output.contiguous().view((-1, self.org_shape[1]) + (output.shape[-1],))
+        output_reshaped = output.contiguous().view((-1, X.shape[1], output.shape[-1]))
         return output_reshaped
 
 class AdaptiveAvgPooling(nn.Module):
@@ -77,7 +77,6 @@ class Baseline(nn.Module):
         X = self.time_distributed(X)  # [batch_size, num_features]
 
         # Classifier
-        print("SHAPE: ", X.shape)
         predictions = self.classifier(X)  # [batch_size, num_frames_in_stack, airway_classes]
 
         return predictions
@@ -232,24 +231,26 @@ class DirectionNavigationNet(nn.Module):
             param.requires_grad = True
         for param in self.direction_classifier.parameters():
             param.requires_grad = True
+
     def forward(self, X: torch.Tensor, hidden: Tuple[torch.Tensor, torch.Tensor]):
         # Feature extractor
-        X = self.time_distributed(X)  # [batch_size, features]
+        X = self.time_distributed(X)  # IN: [4, 50 or 100, 3, 256, 256] OUT: [4, 50 or 100, 256]
 
         # Handle Temporal data
-        X, hidden = self.lstm(X, hidden)  # [batch_size, num_frames_in_stack, output_size]
+        X, hidden = self.lstm(X, hidden)  # IN: [4, 50 or 100, 256] OUT: [4, 50 or 100, 256]
 
         # Classifier
-        airway = self.airway_classifier(X)   # [batch_size, num_frames_in_stack, airway_classes]
+        airway = self.airway_classifier(X)   # IN: [4, 50 or 100, 256] OUT:[4, 50 or 100, 26]
 
         # Handle an additional classification: Direction
-        direction = self.direction_classifier(X)    # [batch_size, num_frames_in_stack, direction_classes]
+        direction = self.direction_classifier(X)    # IN: [4, 50 or 100, 256] OUT:[4, 50 or 100, 2]
 
         return airway, direction, hidden
 
     @torch.jit.export
     def reset_states(self):
         return self.lstm.reset_states()
+
 
 def create_neural_net(num_memory_nodes, num_features_extracted, model_type, num_frames_in_stack, num_airway_segment_classes,
                       num_direction_classes, frame_dimension, batch_size, num_LSTM_cells, classify_direction):

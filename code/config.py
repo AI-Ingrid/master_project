@@ -83,17 +83,17 @@ slide_ratio_in_stack = 5  # Ratio of slide between frames in a stack
 num_airway_segment_classes = 26  # Don't change these
 num_direction_classes = 2  # Don't change these
 num_features_extracted = 256
-num_memory_nodes = 64  # Max = 512
+num_memory_nodes = 256  # Max = 512
 use_stateful_LSTM = False
 num_LSTM_cells = 1
 
 # Training specifications
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"  # "0", "1" or "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # "0", "1" or "2"
 perform_training = True
-classify_direction = False
-epochs = 5000
+classify_direction = True
+epochs = 1
 batch_size = 4
-learning_rate = 1e-3 # 1e-4 for å finetune features etter early stopping har kicka inn med Adam i følge andre
+learning_rate = 1e-3  # 1e-4 for å finetune features etter early stopping har kicka inn med Adam i følge andre
 early_stop_count = 75
 num_stacks = 1024  # Must be divisible by batch size
 alpha_airway = torch.Tensor([0.2, 0.5, 0.5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
@@ -105,7 +105,7 @@ use_focal_loss = True
 use_test_dataloader = True
 load_best_model = True
 convert_to_onnx = True
-num_frames_in_test_stack = num_frames_in_stack
+num_frames_in_test_stack = 5
 slide_ratio_in_test_stack = slide_ratio_in_stack
 plot_dataset_stacks = False
 inference_device = 'cuda'  # or 'cpu'
@@ -124,13 +124,13 @@ dataset_path = f"{data_path}/datasets/"
 local_data_path = "/Users/ikolderu/PycharmProjects/master/test_data"
 
 # Training and Testing paths
-model_type = "baseline"  # {'baseline', 'blomst', 'boble', 'belle'}
+model_type = "boble"  # {'baseline', 'blomst', 'boble', 'belle'}
 date_and_time = datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
 train_plot_path = f"{root_directory_path}/plots/training/"
 train_plot_name = f"{date_and_time}_{dataset_type}_{model_type}_fps_{fps}"
 test_plot_path = f"{root_directory_path}/plots/testing/"
 confusion_metrics_name = f"{date_and_time}_confusion_metrics_{dataset_type}_{model_type}_fps_{fps}"
 model_path = f"{root_directory_path}/models/"
-model_name = f"TEST_{model_type}_{num_frames_in_stack}_{slide_ratio_in_stack}_features_{num_features_extracted}_hidden_{num_memory_nodes}_epochs_{epochs}_focal_loss_{use_focal_loss}_stateful_{use_stateful_LSTM}_direction_{classify_direction}_airway_classes{num_airway_segment_classes}"
+model_name = f"{model_type}_{num_frames_in_stack}_{slide_ratio_in_stack}_features_{num_features_extracted}_hidden_{num_memory_nodes}_epochs_{epochs}_focal_loss_{use_focal_loss}_stateful_{use_stateful_LSTM}_direction_{classify_direction}"
 test_plot_path = f"{root_directory_path}/plots/testing/{model_name}"
 local_trained_model_path = "/trained_models/belle_50_5_features_256_hidden_128_epochs_5000_focal_loss_True_stateful_True_direction_True.onnx"

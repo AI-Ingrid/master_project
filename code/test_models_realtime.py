@@ -98,6 +98,7 @@ class ImageAndClassificationWindow(object):
 
         # Neural network model
         self.classification_model = fast.NeuralNetwork.create(classification_model_path, scaleFactor=1. / 255.)
+
         self.classification_model.connect(self.image_to_sequence)
 
         # Classification (neural network output) to Text

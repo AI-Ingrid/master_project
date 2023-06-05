@@ -26,7 +26,11 @@ def find_num_stacks(csv_file, stack_size, slide_ratio):
         num_frames = sum([1 for row in csv_reader])
     num_left_over_frames = (stack_size * slide_ratio) - num_frames % (stack_size * slide_ratio)
     num_stacks = (num_frames + num_left_over_frames) // (stack_size * slide_ratio)
-    return num_stacks - 1  # Take care of python starting at 0
+    # Stack containing entire video
+    if num_stacks == 1:
+        return 1
+    else:
+        return num_stacks - 1  # Take care of python starting at 0
 
 
 def create_stack_dict(file_list, stack_size, slide_ratio):

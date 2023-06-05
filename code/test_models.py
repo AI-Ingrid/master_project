@@ -21,8 +21,6 @@ from typing import Tuple
 def get_metrics(predictions, targets, num_airway_classes):
     f1_macro_airway = 0
     f1_micro_airway = 0
-    precision_airway = 0
-    recall_airway = 0
 
     f1_macro_airway_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_airway_classes)
     f1_micro_airway_metric = tm.F1Score(average='micro', task='multiclass', num_classes=num_airway_classes)
@@ -36,99 +34,57 @@ def get_metrics(predictions, targets, num_airway_classes):
         airway_video = np.array(video)
         airway_video = torch.tensor(airway_video, dtype=torch.int64)
 
+        # Convert both predictions and labels from 1-26 to 0-25 because F1Score is zero-indexed
+        airway_video -= 1
+        airway_targets -= 1
+
         f1_macro_airway += float(f1_macro_airway_metric(airway_video, airway_targets))
         f1_micro_airway += float(f1_micro_airway_metric(airway_video, airway_targets))
-
-        temp_precision_airway, temp_recall_airway, _, _ = precision_recall_fscore_support(
-                                                targets[index], video, average="macro", labels=list(range(1, num_airway_classes+1)))
-
-        # Summarize the metrics one by one
-        precision_airway += temp_precision_airway
-        recall_airway += temp_recall_airway
 
     # Get the average for the metrics (every video is equally important)
     average_f1_macro_airway = round(f1_macro_airway/len(predictions), 3)
     average_f1_micro_airway = round(f1_micro_airway/len(predictions), 3)
-    average_precision_airway = round(precision_airway/len(predictions), 3)
-    average_recall_airway = round(recall_airway/len(predictions), 3)
 
     print("Average F1 Macro Score Airway: ",  average_f1_macro_airway)
     print("Average F1 Micro Score Airway: ",  average_f1_micro_airway)
-    #print("Average Precision Airway: ", average_precision_airway)
-    #print("Average Recall Airway: ", average_recall_airway)
 
 
 def get_metrics_with_direction(predictions, targets, num_airway_classes, num_direction_classes):
     # Initializing F1 score variables
     f1_macro_airway = 0
-    f1_micro_airway = 0
     f1_macro_direction = 0
-    f1_micro_direction = 0
-
-    # Initializing Precision and Recall variables
-    precision_airway = 0
-    precision_direction = 0
-    recall_airway = 0
-    recall_direction = 0
 
     f1_macro_airway_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_airway_classes)
-    f1_micro_airway_metric = tm.F1Score(average='micro', task='multiclass', num_classes=num_airway_classes)
     f1_macro_direction_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_direction_classes)
-    f1_micro_direction_metric = tm.F1Score(average='micro', task='multiclass', num_classes=num_direction_classes)
 
     for index, video in enumerate(predictions):
         # Convert targets to tensors
         airway_targets = np.array(targets[index][0])
-        airway_targets = torch.tensor(airway_targets, dtype=torch.int64)  # [num_frames=5, num_classes = 27]
+        airway_targets = torch.tensor(airway_targets, dtype=torch.int64)
 
         direction_targets = np.array(targets[index][1])
-        direction_targets = torch.tensor(direction_targets, dtype=torch.int64)  # [num_frames=5, num_classes=2]
+        direction_targets = torch.tensor(direction_targets, dtype=torch.int64)
 
         # Convert video predictions to tensors
         airway_video = np.array(video[0])
-        airway_video = torch.tensor(airway_video, dtype=torch.int64) # [num_frames=5, num_classes = 27]
+        airway_video = torch.tensor(airway_video, dtype=torch.int64)
 
         direction_video = np.array(video[1])
-        direction_video = torch.tensor(direction_video, dtype=torch.int64) # [num_frames=5, num_classes=2]
+        direction_video = torch.tensor(direction_video, dtype=torch.int64)
+
+        # Convert both predictions and labels from 1-26 to 0-25 because F1Score is zero-indexed
+        airway_video -= 1
+        airway_targets -= 1
 
         f1_macro_airway += float(f1_macro_airway_metric(airway_video, airway_targets))
-        f1_micro_airway += float(f1_micro_airway_metric(airway_video, airway_targets))
         f1_macro_direction += float(f1_macro_direction_metric(direction_video, direction_targets))
-        f1_micro_direction += float(f1_micro_direction_metric(direction_video, direction_targets))
-
-        temp_precision_airway, temp_recall_airway, _, _ = precision_recall_fscore_support(
-                                                targets[index][0], video[0], average="macro", labels=list(range(1, num_airway_classes+1)))
-        temp_precision_direction, temp_recall_direction, _, _ = precision_recall_fscore_support(
-                                                targets[index][1], video[1], average="macro", labels=list(range(0, num_direction_classes)))
-
-        # Summarize the metrics one by one
-        precision_airway += temp_precision_airway
-        recall_airway += temp_recall_airway
-
-        precision_direction += temp_precision_direction
-        recall_direction += temp_recall_direction
 
     # Get the average for the metrics (every video is equally important)
     average_f1_macro_airway = round(f1_macro_airway/len(predictions), 3)
-    average_f1_micro_airway = round(f1_micro_airway/len(predictions), 3)
     average_f1_macro_direction = round(f1_macro_direction/len(predictions), 3)
-    average_f1_micro_direction = round(f1_micro_direction/len(predictions), 3)
-
-    average_precision_airway = round(precision_airway/len(predictions), 3)
-    average_precision_direction = round(precision_direction/len(predictions), 3)
-
-    average_recall_airway = round(recall_airway/len(predictions), 3)
-    average_recall_direction = round(recall_direction/len(predictions), 3)
 
     print("Average F1 Macro Score Airway: ",  average_f1_macro_airway)
-    print("Average F1 Micro Score Airway: ",  average_f1_micro_airway)
     print("Average F1 Macro Score Direction: ", average_f1_macro_direction)
-    print("Average F1 Micro Score Direction: ", average_f1_micro_direction)
-
-    #print("Average Precision Airway: ", average_precision_airway)
-    #print("Average Precision Direction: ", average_precision_direction)
-    #print("Average Recall Airway: ", average_recall_airway)
-    #print("Average Recall Direction: ", average_recall_direction)
 
 
 def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio, num_frames_in_test_stack, data_path, model_name):
@@ -145,7 +101,6 @@ def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio,
     test_sequences = [file.split(".")[0] for file in sequence_list if (file.lower().endswith('.csv'))]
     video_counter = 0
 
-
     # Go through every video in test data set
     for video_frames, (airway_labels, _) in tqdm(test_dataset):
         airway_predictions = []
@@ -153,7 +108,7 @@ def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio,
         # Handle stack edge case to make sure every stack has length num_frames
         extended_video_frames = copy.deepcopy(video_frames)
         num_left_over_frames = (num_frames_in_test_stack * test_slide_ratio) - len(video_frames) % (num_frames_in_test_stack * test_slide_ratio)
-
+        print("Stack size: ", num_frames_in_test_stack, " and num left over frames for video: ", num_left_over_frames)
         if num_left_over_frames != 0:
             # Copy last frames to get equal stack length
             additional_frames = [video_frames[-1]] * (num_left_over_frames)
@@ -189,6 +144,9 @@ def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio,
 
             # Argmax
             predictions_airway = torch.argmax(probabilities_airway, axis=-1)  # (5)
+
+            # Changing the airway predictions values from 0-25 to 1-26 to match the labels
+            predictions_airway += 1
 
             # Interpolate - Resize
             full_stack_predictions_airway = scipy.ndimage.zoom(predictions_airway, zoom=(test_slide_ratio), order=0)  # [50]
@@ -241,6 +199,7 @@ def get_test_set_predictions_with_direction(model, test_dataset, test_slide_rati
         # Handle stack edge case to make sure every stack has length num_frames
         extended_video_frames = copy.deepcopy(video_frames)
         num_left_over_frames = (num_frames_in_test_stack * test_slide_ratio) - len(video_frames) % (num_frames_in_test_stack * test_slide_ratio)
+        print("Stack size: ", num_frames_in_test_stack, " and num left over frames for video: ", num_left_over_frames)
 
         if num_left_over_frames != 0:
             # Copy last frames to get equal stack length
@@ -248,9 +207,9 @@ def get_test_set_predictions_with_direction(model, test_dataset, test_slide_rati
             additional_frames = torch.stack(additional_frames, dim=0)
             extended_video_frames = torch.cat([video_frames, additional_frames], dim=0)
 
-        #Initialize hidden state and cell state at the beginning of every video
-        hidden_state = torch.zeros(model.num_stacked_LSTMs, 1, model.num_memory_nodes)  # [num_layers,batch,hidden_size or H_out]
-        cell_state = torch.zeros(model.num_stacked_LSTMs, 1, model.num_memory_nodes)  # [num_layers,batch,hidden_size]
+        # Initialize hidden state and cell state at the beginning of every video
+        hidden_state = torch.zeros(model.num_stacked_LSTMs, 1, model.num_memory_nodes)  # OUT: [1, 1, 256]
+        cell_state = torch.zeros(model.num_stacked_LSTMs, 1, model.num_memory_nodes)  # OUT: [1, 1, 256]
         hidden = to_cuda((hidden_state, cell_state))
 
         # Go through the frames with a given test slide ratio and number of frames in a stack
@@ -268,26 +227,29 @@ def get_test_set_predictions_with_direction(model, test_dataset, test_slide_rati
             torch.manual_seed(42)
 
             # Send stack into the model and get predictions
-            predictions_airway, predictions_direction, hidden = model(stack_5D, hidden)  # out: (1, 5, 27), (1, 5, 2)
+            predictions_airway, predictions_direction, hidden = model(stack_5D, hidden) # OUT: [1, 50 or 100, 26] and [1, 50 or 100, 2]
 
             # Remove batch dim
-            predictions_airway = torch.squeeze(predictions_airway)  # out: (frames in stack, 27)
-            predictions_direction = torch.squeeze(predictions_direction)  # out (frames in stack, 2)
+            predictions_airway = torch.squeeze(predictions_airway)  # OUT: [50 or 100, 26]
+            predictions_direction = torch.squeeze(predictions_direction)  # OUT: [50 or 100, 2]
 
             # STATEFUL: Softmax
-            probabilities_airway = torch.softmax(predictions_airway, dim=-1).detach().cpu()    # (50, 27)
-            probabilities_direction = torch.softmax(predictions_direction, dim=-1).detach().cpu()   # (50, 2)
+            probabilities_airway = torch.softmax(predictions_airway, dim=-1).detach().cpu()  # OUT: [50 or 100, 26]
+            probabilities_direction = torch.softmax(predictions_direction, dim=-1).detach().cpu()  # OUT: [50 or 100, 2]
 
             # Free memory
             del predictions_airway, predictions_direction,
 
             # Argmax
-            predictions_airway = torch.argmax(probabilities_airway, axis=-1)  # (5)
-            predictions_direction = torch.argmax(probabilities_direction, axis=-1)  # (5)
+            predictions_airway = torch.argmax(probabilities_airway, axis=-1)  # OUT: [50 or 100]
+            predictions_direction = torch.argmax(probabilities_direction, axis=-1)  # OUT: [50 or 100]
+
+            # Changing the airway predictions values from 0-25 to 1-26 to match the labels
+            predictions_airway += 1
 
             # Interpolate - Resize
-            full_stack_predictions_airway = scipy.ndimage.zoom(predictions_airway, zoom=(test_slide_ratio), order=0)  # [50]
-            full_stack_predictions_direction = scipy.ndimage.zoom(predictions_direction, zoom=(test_slide_ratio), order=0)  # [50]
+            full_stack_predictions_airway = scipy.ndimage.zoom(predictions_airway, zoom=(test_slide_ratio), order=0)  # OUT: [250 or 500]
+            full_stack_predictions_direction = scipy.ndimage.zoom(predictions_direction, zoom=(test_slide_ratio), order=0)  # OUT: [250 or 500]
 
             # Store stack predictions in the current video predictions list
             airway_predictions += full_stack_predictions_airway.tolist()  # airway_predictions: [[stack1], [stack2], [stack3], [stack4] ... [stack16]]
@@ -344,6 +306,7 @@ def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames_i
         # Handle stack edge case to make sure every stack has length num_frames
         extended_video_frames = copy.deepcopy(video_frames)
         num_left_over_frames = (num_frames_in_test_stack * test_slide_ratio) - len(video_frames) % (num_frames_in_test_stack * test_slide_ratio)
+        print("Stack size: ", num_frames_in_test_stack, " and num left over frames for video: ", num_left_over_frames)
 
         if num_left_over_frames != 0:
             # Copy last frames to get equal stack length
@@ -384,6 +347,9 @@ def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames_i
 
             # Argmax
             predictions_airway = torch.argmax(probabilities_airway, axis=-1)  # (5)
+
+            # Changing the airway predictions values from 0-25 to 1-26 to match the labels
+            predictions_airway += 1
 
             # Interpolate - Resize
             full_stack_predictions_airway = scipy.ndimage.zoom(predictions_airway, zoom=(test_slide_ratio), order=0)  # [50]
@@ -468,9 +434,25 @@ def convert_model_to_onnx_for_baseline(model, num_frames_in_test_stack, dimensio
     # Freeze the weights
     model_for_onnx.eval()
 
-    dummy_input = torch.randn(1, num_frames_in_test_stack, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
-    dummy_input_cuda = to_cuda(dummy_input)
-    torch.onnx.export(model_for_onnx, (dummy_input_cuda,), f'{model_path}onnx/{model_name}.onnx')
+    # Dummy input
+    dummy_input_X = torch.randn(1, num_frames_in_test_stack, 3, dimension[0],
+                                dimension[1])  # Have to use batch size 1 since test set does not use batches
+
+    # To cuda
+    dummy_input_X_cuda = to_cuda(dummy_input_X)
+
+    torch.onnx.export(model_for_onnx,
+                      (dummy_input_X_cuda,),
+                      f'{model_path}onnx/{model_name}.onnx',
+                      opset_version=11,
+                      input_names=['input'],
+                      output_names=['airway'],
+                      dynamic_axes={
+                          'input': {1: 'stack_size'},
+                          'airway': {1: 'stack_size'},
+                      },
+                      verbose=False)
+    print("Exported to ONNX")
 
 
 def convert_model_to_onnx(model, num_frames_in_test_stack, dimension, model_name, model_path):
@@ -524,16 +506,25 @@ def convert_model_to_onnx(model, num_frames_in_test_stack, dimension, model_name
     # Freeze the weights
     model_for_onnx.eval()
 
-    dummy_input_X = torch.randn(1, num_frames_in_test_stack, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
+    # Dummy input
+    dummy_input_X = torch.randn(1, num_frames_in_test_stack, 3, dimension[0],
+                                dimension[1])  # Have to use batch size 1 since test set does not use batches
+
+    # To cuda
     dummy_input_X_cuda = to_cuda(dummy_input_X)
 
-    torch.onnx.export(
-        model_for_onnx,
-        (dummy_input_X_cuda, ),
-        f'{model_path}onnx/{model_name}.onnx',
-        opset_version=11,
-        # Add dynamix axes
-    )
+    torch.onnx.export(model_for_onnx,
+                      (dummy_input_X_cuda,),
+                      f'{model_path}onnx/{model_name}.onnx',
+                      opset_version=11,
+                      input_names=['input'],
+                      output_names=['airway'],
+                      dynamic_axes={
+                          'input': {1: 'stack_size'},
+                          'airway': {1: 'stack_size'},
+                      },
+                      verbose=False)
+    print("Exported to ONNX")
 
 
 def convert_model_to_onnx_with_direction(model, num_frames_in_test_stack, dimension, model_name, model_path):
@@ -588,16 +579,25 @@ def convert_model_to_onnx_with_direction(model, num_frames_in_test_stack, dimens
     # Freeze the weights
     model_for_onnx.eval()
 
+    # Dummy input
     dummy_input_X = torch.randn(1, num_frames_in_test_stack, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
+
+    # To cuda
     dummy_input_X_cuda = to_cuda(dummy_input_X)
 
     torch.onnx.export(model_for_onnx,
-                      (dummy_input_X_cuda, ),
+                      (dummy_input_X_cuda,),
                       f'{model_path}onnx/{model_name}.onnx',
                       opset_version=11,
+                      input_names=['input'],
+                      output_names=['airway', 'direction'],
                       dynamic_axes={
-
-                      })
+                          'input': {1: 'stack_size'},
+                          'airway': {1: 'stack_size'},
+                          'direction': {1: 'stack_size'},
+                      },
+                      verbose=False)
+    print("Exported to ONNX")
 
 
 def map_synthetic_frames_and_test_frames(data_path):
@@ -663,6 +663,8 @@ def plot_confusion_metrics(predictions, targets, confusion_metrics_plot_path, nu
 def plot_confusion_metrics_with_direction(predictions, targets, confusion_metrics_plot_path, num_airway_classes, num_direction_classes, stateful_testing=True):
     plot_directory_path = pathlib.Path(confusion_metrics_plot_path)
     plot_directory_path.mkdir(exist_ok=True)
+
+    colors = []
 
     if not stateful_testing:
         airway_plot_path = pathlib.Path(confusion_metrics_plot_path + "/stateless_airway_confusion_matrix.png")
@@ -806,6 +808,7 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames_in_test_stack
     elif model_type == "boble" or model_type == "belle":
         print(" -- STATEFUL TESTING --")
         # Convert to onnx
+        # TODO: Return onnx model og bruk den for testing fordi den støtter dynamics shapes
         convert_model_to_onnx_with_direction(model=trainer.model,
                                              num_frames_in_test_stack=num_frames_in_test_stack,
                                              dimension=frame_dimension,

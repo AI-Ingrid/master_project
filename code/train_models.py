@@ -206,6 +206,7 @@ def compute_f1_and_loss_for_airway_and_direction(
 
     with torch.no_grad():
         for (X_batch, (Y_batch_airway, Y_batch_direction)) in dataloader:
+            # TO CUDA
             X_batch = to_cuda(X_batch)
             Y_batch_airway = to_cuda(Y_batch_airway)
             Y_batch_direction = to_cuda(Y_batch_direction)
@@ -218,24 +219,24 @@ def compute_f1_and_loss_for_airway_and_direction(
             hidden = model.reset_states()
 
             # Get the prediction probabilities
-            predictions_airway_softmax = torch.softmax(predictions_airway, dim=-1)  # [16, 10, 27]
-            predictions_direction_softmax = torch.softmax(predictions_direction, dim=-1)  # [16, 10, 2]
+            predictions_airway_softmax = torch.softmax(predictions_airway, dim=-1)  # IN: [4, 50 or 100, 26] OUT: [4, 50 or 100, 26]
+            predictions_direction_softmax = torch.softmax(predictions_direction, dim=-1)  # IN: [4, 50 or 100, 2] OUT: [4, 50 or 100, 2]
 
             # Decode the one-hot-encoding for predictions
-            predictions_airway_decoded = torch.argmax(predictions_airway_softmax, axis=-1).flatten()
-            predictions_direction_decoded = torch.argmax(predictions_direction_softmax, axis=-1).flatten()
+            predictions_airway_decoded = torch.argmax(predictions_airway_softmax, axis=-1).flatten()  # OUT: [200 or 400]
+            predictions_direction_decoded = torch.argmax(predictions_direction_softmax, axis=-1).flatten()  # OUT: [200 or 400]
 
             # Decode the one-hot-encoding for targets
-            targets_airway_decoded = torch.argmax(Y_batch_airway, axis=-1).flatten()
-            targets_direction_decoded = torch.argmax(Y_batch_direction, axis=-1).flatten()
+            targets_airway_decoded = torch.argmax(Y_batch_airway, axis=-1).flatten()  # OUT: [200 or 400]
+            targets_direction_decoded = torch.argmax(Y_batch_direction, axis=-1).flatten()  # OUT: [200 or 400]
 
             # Compute F1 Score
             f1_airway += f1_airway_segment_metric(predictions_airway_decoded.cpu(), targets_airway_decoded.cpu())
             f1_direction += f1_direction_metric(predictions_direction_decoded.cpu(), targets_direction_decoded.cpu())
 
             # Reshape 3D to 2D for the loss function
-            shape_airway = (batch_size * num_frames_in_stack, num_airway_segment_classes)
-            shape_direction = (batch_size * num_frames_in_stack, num_direction_classes)
+            shape_airway = (batch_size * num_frames_in_stack, num_airway_segment_classes)  # OUT: [200 or 400, 26]
+            shape_direction = (batch_size * num_frames_in_stack, num_direction_classes)  # OUT: [200 or 400, 2]
 
             Y_batch_airway = Y_batch_airway.reshape(shape_airway)
             Y_batch_direction = Y_batch_direction.reshape(shape_direction)
@@ -246,16 +247,16 @@ def compute_f1_and_loss_for_airway_and_direction(
             cross_entropy_loss_airway = loss_criterion(predictions_airway, Y_batch_airway.float(), reduction='none')
             cross_entropy_loss_direction = loss_criterion(predictions_direction, Y_batch_direction.float(), reduction='none')
 
-            cross_entropy_loss_airway = cross_entropy_loss_airway.mean()
-            cross_entropy_loss_direction = cross_entropy_loss_direction.mean()
+            cross_entropy_loss_airway = cross_entropy_loss_airway.mean()  # OUT: 2.3 ish
+            cross_entropy_loss_direction = cross_entropy_loss_direction.mean()  # OUT: 0.69 ish
 
             # Calculate focal loss
             if use_focal_loss:
                 pt_airway = torch.exp(-cross_entropy_loss_airway)
                 pt_direction = torch.exp(-cross_entropy_loss_direction)
 
-                focal_loss_airway = (alpha_airway * (1 - pt_airway) ** gamma * cross_entropy_loss_airway).mean()
-                focal_loss_direction = (alpha_direction * (1 - pt_direction) ** gamma * cross_entropy_loss_direction).mean()
+                focal_loss_airway = (alpha_airway * (1 - pt_airway) ** gamma * cross_entropy_loss_airway).mean()  # OUT: 1.73 ish
+                focal_loss_direction = (alpha_direction * (1 - pt_direction) ** gamma * cross_entropy_loss_direction).mean()  # OUT: 0.14 ish
 
                 # Summarize over all batches
                 loss_airway += focal_loss_airway
@@ -277,7 +278,6 @@ def compute_f1_and_loss_for_airway_and_direction(
 
 
 def compute_combined_loss(airway_loss, direction_loss):
-    # TODO: Trenger en vekt som balanserer ut den andre: ln(2)/ln(27)
     return airway_loss + direction_loss
 
 
@@ -762,43 +762,44 @@ class NavigationNetTrainer:
 
         # Forward pass DIRECTION
         if self.classify_direction:
-            predictions_airway, predictions_direction, hidden = self.model(X_batch, hidden)
+            predictions_airway, predictions_direction, hidden = self.model(X_batch, hidden)  # OUT predictions: [4, 50 or 100, 26] and [4, 50 or 100, 2]
 
             # Reshape 3D to 2D for the loss function
             shape_direction = (self.batch_size * self.num_frames_in_stack, self.num_direction_classes)
-            predictions_direction = predictions_direction.reshape(shape_direction)  # [80, 2]
-            Y_batch_direction = Y_batch_direction.reshape(shape_direction)
+            predictions_direction = predictions_direction.reshape(shape_direction)  # OUT: [200 or 400, 2]
+            Y_batch_direction = Y_batch_direction.reshape(shape_direction)  # OUT: [200 or 400, 2]
 
             # Calculate loss for direction
-            direction_loss = self.loss_criterion(predictions_direction, Y_batch_direction, reduction='none')  # [16 * 5 = 80]
-            direction_loss = direction_loss.mean()
+            direction_loss = self.loss_criterion(predictions_direction, Y_batch_direction, reduction='none')
+            direction_loss = direction_loss.mean()  # OUT: 0.69 ish
 
             # Calculate focal loss
             if self.use_focal_loss:
                 pt_direction = torch.exp(-direction_loss)
                 focal_loss_direction = (self.alpha_direction * (1 - pt_direction) ** self.gamma * direction_loss)
-                direction_loss = focal_loss_direction.mean()
+                direction_loss = focal_loss_direction.mean()  # OUT: 0.1135 to 0.2179
+
         else:
-            predictions_airway, hidden = self.model(X_batch, hidden)
-            direction_loss = 0 # When not classifying direction
+            predictions_airway, hidden = self.model(X_batch, hidden)  # OUT: [4, 50 or 100, 26]
+            direction_loss = 0  # When not classifying direction
 
         # Detach the hidden state and cell state after every batch
-        hidden = self.model.reset_states()
+        hidden = self.model.reset_states()  # OUT: hidden state=[1, 4, 256] cell state=[1, 4, 256]
 
         # Reshape 3D to 2D for the loss function
         shape_airway = (self.batch_size * self.num_frames_in_stack, self.num_airway_segment_classes)
-        predictions_airway = predictions_airway.reshape(shape_airway)  # [80, 27]
-        Y_batch_airway = Y_batch_airway.reshape(shape_airway)
+        predictions_airway = predictions_airway.reshape(shape_airway)  # OUT: [200 or 400, 26]
+        Y_batch_airway = Y_batch_airway.reshape(shape_airway)  # OUT: [200 or 400, 26]
 
         # Calculate loss for airway segment
         airway_loss = self.loss_criterion(predictions_airway, Y_batch_airway, reduction="none")  # [16 * 5 = 80 ]
-        airway_loss = airway_loss.mean()
+        airway_loss = airway_loss.mean()  # OUT: 3.2 ish
 
         # Calculate focal loss
         if self.use_focal_loss:
             pt_airway = torch.exp(-airway_loss)
             focal_loss_airway = (self.alpha_airway * (1 - pt_airway) ** self.gamma * airway_loss)
-            airway_loss = focal_loss_airway.mean()
+            airway_loss = focal_loss_airway.mean()  # OUT: 2.78 ish
 
         # Compute combined loss
         combined_loss = compute_combined_loss(airway_loss, direction_loss)
@@ -823,8 +824,8 @@ class NavigationNetTrainer:
             print("Epoch: ", epoch)
 
             # Initialize hidden state and cell state at the beginning of every epoch
-            hidden_state = torch.zeros(self.num_LSTM_cells, self.batch_size, self.hidden_size)  # [num_layers,batch,hidden_size or H_out]
-            cell_state = torch.zeros(self.num_LSTM_cells, self.batch_size, self.hidden_size)  # [num_layers,batch,hidden_size]
+            hidden_state = torch.zeros(self.num_LSTM_cells, self.batch_size, self.hidden_size)  # OUT: [1, 4, 256]
+            cell_state = torch.zeros(self.num_LSTM_cells, self.batch_size, self.hidden_size)  #  OUT: [1, 4, 256]
 
             # Perform a full pass through all the training samples
             for X_batch, Y_batch in self.train_dataloader:

@@ -27,18 +27,19 @@ def separate_dataframe(video_df, transform, num_airway_segment_classes, num_dire
 
     # Not one-hot encode the labels for the test set
     if is_test_dataset:
-        airway_labels = torch.tensor(airway_labels.values)
+        airway_labels = torch.tensor(airway_labels.values)  # Values from 1- 26
         direction_labels = torch.tensor(direction_labels.values)
 
     else:
         # Shift all ground truth values one value lower, go from labels 1-26 -> 0-25 (for one-hot-encoding)
         airway_labels = np.array(list(airway_labels.values))
         airway_labels = airway_labels - 1
+
         # One-hot encode the labels for training and validation dataset
         airway_labels = torch.nn.functional.one_hot(torch.tensor(airway_labels),
-                                                    num_classes=num_airway_segment_classes)  # [num_frames=5, num_classes = 27]
+                                                    num_classes=num_airway_segment_classes)
         direction_labels = torch.nn.functional.one_hot(torch.tensor(direction_labels.values),
-                                                       num_classes=num_direction_classes)  # [num_frames=5, num_classes=2]
+                                                       num_classes=num_direction_classes)
     return frames, airway_labels.float(), direction_labels.float()
 
 class RandomGeneratorDataset(Dataset):

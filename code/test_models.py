@@ -20,10 +20,8 @@ from typing import Tuple
 
 def get_metrics(predictions, targets, num_airway_classes):
     f1_macro_airway = 0
-    f1_micro_airway = 0
 
     f1_macro_airway_metric = tm.F1Score(average='macro', task='multiclass', num_classes=num_airway_classes)
-    f1_micro_airway_metric = tm.F1Score(average='micro', task='multiclass', num_classes=num_airway_classes)
 
     for index, video in enumerate(predictions):
         # Convert to tensors
@@ -39,14 +37,11 @@ def get_metrics(predictions, targets, num_airway_classes):
         airway_targets -= 1
 
         f1_macro_airway += float(f1_macro_airway_metric(airway_video, airway_targets))
-        f1_micro_airway += float(f1_micro_airway_metric(airway_video, airway_targets))
 
     # Get the average for the metrics (every video is equally important)
     average_f1_macro_airway = round(f1_macro_airway/len(predictions), 3)
-    average_f1_micro_airway = round(f1_micro_airway/len(predictions), 3)
 
     print("Average F1 Macro Score Airway: ",  average_f1_macro_airway)
-    print("Average F1 Micro Score Airway: ",  average_f1_micro_airway)
 
 
 def get_metrics_with_direction(predictions, targets, num_airway_classes, num_direction_classes):
@@ -108,7 +103,7 @@ def get_test_set_predictions_for_baseline(model, test_dataset, test_slide_ratio,
         # Handle stack edge case to make sure every stack has length num_frames
         extended_video_frames = copy.deepcopy(video_frames)
         num_left_over_frames = (num_frames_in_test_stack * test_slide_ratio) - len(video_frames) % (num_frames_in_test_stack * test_slide_ratio)
-        print("Stack size: ", num_frames_in_test_stack, " and num left over frames for video: ", num_left_over_frames)
+
         if num_left_over_frames != 0:
             # Copy last frames to get equal stack length
             additional_frames = [video_frames[-1]] * (num_left_over_frames)
@@ -199,7 +194,6 @@ def get_test_set_predictions_with_direction(model, test_dataset, test_slide_rati
         # Handle stack edge case to make sure every stack has length num_frames
         extended_video_frames = copy.deepcopy(video_frames)
         num_left_over_frames = (num_frames_in_test_stack * test_slide_ratio) - len(video_frames) % (num_frames_in_test_stack * test_slide_ratio)
-        print("Stack size: ", num_frames_in_test_stack, " and num left over frames for video: ", num_left_over_frames)
 
         if num_left_over_frames != 0:
             # Copy last frames to get equal stack length
@@ -306,7 +300,6 @@ def get_test_set_predictions(model, test_dataset, test_slide_ratio, num_frames_i
         # Handle stack edge case to make sure every stack has length num_frames
         extended_video_frames = copy.deepcopy(video_frames)
         num_left_over_frames = (num_frames_in_test_stack * test_slide_ratio) - len(video_frames) % (num_frames_in_test_stack * test_slide_ratio)
-        print("Stack size: ", num_frames_in_test_stack, " and num left over frames for video: ", num_left_over_frames)
 
         if num_left_over_frames != 0:
             # Copy last frames to get equal stack length
@@ -556,14 +549,14 @@ def convert_model_to_onnx_with_direction(model, num_frames_in_test_stack, dimens
             self.softmax_layer = softmax_layer
 
             # Initialize hidden state and cell state at the beginning of every epoch
-            self.hidden_state = to_cuda(torch.zeros(num_LSTM_cells, batch_size, num_memory_nodes))  # [num_layers,batch,hidden_size or H_out]
-            self.cell_state = to_cuda(torch.zeros(num_LSTM_cells, batch_size, num_memory_nodes))  # [num_layers,batch,hidden_size]
+            #self.hidden_state = to_cuda(torch.zeros(num_LSTM_cells, batch_size, num_memory_nodes))  # [num_layers,batch,hidden_size or H_out]
+            #self.cell_state = to_cuda(torch.zeros(num_LSTM_cells, batch_size, num_memory_nodes))  # [num_layers,batch,hidden_size]
 
-        def forward(self, X: torch.Tensor):
-            airway, direction, (self.hidden_state, self.cell_state) = self.trained_model(X, (self.hidden_state, self.cell_state))
+        def forward(self, X: torch.Tensor, hidden_state: torch.Tensor, cell_state: torch.Tensor):
+            airway, direction, (hidden_state, cell_state) = self.trained_model(X, (hidden_state, cell_state))
             airway = self.softmax_layer(airway)
             direction = self.softmax_layer(direction)
-            return airway, direction
+            return airway, direction, hidden_state, cell_state
 
     # Convert the ModelForOnnx (nn.Module) to s torch script
     model_for_onnx = ModelForOnnx(model.num_stacked_LSTMs, 1, model.num_memory_nodes)
@@ -581,16 +574,20 @@ def convert_model_to_onnx_with_direction(model, num_frames_in_test_stack, dimens
 
     # Dummy input
     dummy_input_X = torch.randn(1, num_frames_in_test_stack, 3, dimension[0], dimension[1])  # Have to use batch size 1 since test set does not use batches
+    dummy_input_hidden_state = torch.zeros(1, 1, 256)  # [num_layers,batch,hidden_size or H_out]
+    dummy_input_cell_state = torch.zeros(1, 1, 256)   # [num_layers,batch,hidden_size]
 
     # To cuda
     dummy_input_X_cuda = to_cuda(dummy_input_X)
+    dummy_input_hidden_state_cuda = to_cuda(dummy_input_hidden_state)
+    dummy_input_cell_state_cuda = to_cuda(dummy_input_cell_state)
 
     torch.onnx.export(model_for_onnx,
-                      (dummy_input_X_cuda,),
+                      (dummy_input_X_cuda, dummy_input_hidden_state_cuda, dummy_input_cell_state_cuda),
                       f'{model_path}onnx/{model_name}.onnx',
                       opset_version=11,
-                      input_names=['input'],
-                      output_names=['airway', 'direction'],
+                      input_names=['input', 'hidden_state_in', 'cell_state_in'],
+                      output_names=['airway', 'direction', 'hidden_state_out', 'cell_state_out'],
                       dynamic_axes={
                           'input': {1: 'stack_size'},
                           'airway': {1: 'stack_size'},
@@ -626,13 +623,13 @@ def map_synthetic_frames_and_test_frames(data_path):
             frame_count += 1
 
 
-def plot_confusion_metrics(predictions, targets, confusion_metrics_plot_path, num_airway_classes, stateful_testing=True):
+def plot_confusion_metrics(predictions, targets, confusion_metrics_plot_path, num_airway_classes, stack_size, stateful_testing=True):
     plot_directory_path = pathlib.Path(confusion_metrics_plot_path)
     plot_directory_path.mkdir(exist_ok=True)
     if not stateful_testing:
-        airway_plot_path = pathlib.Path(confusion_metrics_plot_path + "/stateless_airway_confusion_matrix.png")
+        airway_plot_path = pathlib.Path(confusion_metrics_plot_path + f"/stateless_airway_confusion_matrix_stack_size_{stack_size}.png")
     else:
-        airway_plot_path = pathlib.Path(confusion_metrics_plot_path + "/stateful_airway_confusion_matrix.png")
+        airway_plot_path = pathlib.Path(confusion_metrics_plot_path + f"/stateful_airway_confusion_matrix_stack_size_{stack_size}.png")
 
     # Predictions og targets er ikke onehote encoda
     # Predictions består av en liste med 9 elementer, hvert element er en video
@@ -660,18 +657,18 @@ def plot_confusion_metrics(predictions, targets, confusion_metrics_plot_path, nu
     plt.show()
 
 
-def plot_confusion_metrics_with_direction(predictions, targets, confusion_metrics_plot_path, num_airway_classes, num_direction_classes, stateful_testing=True):
+def plot_confusion_metrics_with_direction(predictions, targets, confusion_metrics_plot_path, num_airway_classes, num_direction_classes, stack_size, stateful_testing=True):
     plot_directory_path = pathlib.Path(confusion_metrics_plot_path)
     plot_directory_path.mkdir(exist_ok=True)
 
     colors = []
 
     if not stateful_testing:
-        airway_plot_path = pathlib.Path(confusion_metrics_plot_path + "/stateless_airway_confusion_matrix.png")
-        direction_plot_path = pathlib.Path(confusion_metrics_plot_path + "/stateless_direction_confusion_matrix.png")
+        airway_plot_path = pathlib.Path(confusion_metrics_plot_path + f"/stateless_airway_confusion_matrix_stack_size_{stack_size}.png")
+        direction_plot_path = pathlib.Path(confusion_metrics_plot_path + f"/stateless_direction_confusion_matrix_stack_size_{stack_size}.png")
     else:
-        airway_plot_path = pathlib.Path(confusion_metrics_plot_path + "/stateful_airway_confusion_matrix.png")
-        direction_plot_path = pathlib.Path(confusion_metrics_plot_path + "/stateful_direction_confusion_matrix.png")
+        airway_plot_path = pathlib.Path(confusion_metrics_plot_path + f"/stateful_airway_confusion_matrix_stack_size_{stack_size}.png")
+        direction_plot_path = pathlib.Path(confusion_metrics_plot_path + f"/stateful_direction_confusion_matrix_stack_size_{stack_size}.png")
 
     # Predictions og targets er ikke onehote encoda
     # Predictions består av en liste med 9 elementer, hvert element er en video
@@ -718,6 +715,7 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames_in_test_stack
                local_test_data_path, local_trained_model_path):
 
     print("-- TESTING --")
+    print("Test Stack Size: ", num_frames_in_test_stack)
     # Load neural net model
     print("Loading best model for: ", model_name)
     trainer.load_model(inference_device)
@@ -750,7 +748,9 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames_in_test_stack
         plot_confusion_metrics(predictions=predictions,
                                targets=targets,
                                confusion_metrics_plot_path=test_plot_path,
-                               num_airway_classes=num_airway_classes)
+                               num_airway_classes=num_airway_classes,
+                               stack_size=num_frames_in_test_stack,
+                               stateful_testing=False)
 
     # Test pipeline for Blomst: LSTM
     elif model_type == "blomst":
@@ -780,6 +780,7 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames_in_test_stack
                                targets=targets,
                                confusion_metrics_plot_path=test_plot_path,
                                num_airway_classes=num_airway_classes,
+                               stack_size=num_frames_in_test_stack,
                                stateful_testing=True)
 
         # STATELESS: Run predictions on test set
@@ -802,6 +803,7 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames_in_test_stack
                                targets=targets,
                                confusion_metrics_plot_path=test_plot_path,
                                num_airway_classes=num_airway_classes,
+                               stack_size=num_frames_in_test_stack,
                                stateful_testing=False)
 
     # Test pipeline for Boble or Belle: LSTM and direction
@@ -835,6 +837,7 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames_in_test_stack
                                               confusion_metrics_plot_path=test_plot_path,
                                               num_airway_classes=num_airway_classes,
                                               num_direction_classes=num_direction_classes,
+                                              stack_size=num_frames_in_test_stack,
                                               stateful_testing=True)
 
         print(" -- STATELESS TESTING --")
@@ -859,15 +862,5 @@ def test_model(trainer, test_dataset, test_slide_ratio, num_frames_in_test_stack
                                               confusion_metrics_plot_path=test_plot_path,
                                               num_airway_classes=num_airway_classes,
                                               num_direction_classes=num_direction_classes,
+                                              stack_size=num_frames_in_test_stack,
                                               stateful_testing=False)
-        """ 
-        # Run inference testing with pyfast
-        test_videos = list(os.listdir(local_test_data_path))
-        for test_video in test_videos:
-            test_video_path = local_test_data_path + f"/{test_video}/frame_#.png"
-            run_testing_realtime(airway_labels=airway_labels,
-                                 direction_labels=direction_labels,
-                                 data_path=test_video_path,
-                                 num_frames_in_test_stack=num_frames_in_test_stack,
-                                 trained_model_path=local_trained_model_path)
-        """
